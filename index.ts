@@ -2,6 +2,9 @@ const http = require('http');
 const fs = require('fs');
 const _ = require('lodash');
 
+const url = '0.0.0.0'
+const port = 80
+
 const server = http.createServer((req, res) => {
 
   // lodash
@@ -19,7 +22,7 @@ const server = http.createServer((req, res) => {
 
   // routing
   let path = './views/';
-  switch(req.url) {
+  switch (req.url) {
     case '/':
       path += 'index.html';
       res.statusCode = 200;
@@ -52,6 +55,8 @@ const server = http.createServer((req, res) => {
 });
 
 // localhost is the default value for 2nd argument
-server.listen(3000, 'localhost', () => {
-  console.log('listening for requests on port 3000');
+server.listen(port, url, () => {
+  console.log(`Listening to port ${port}`);
+  console.log(`http://192.168.1.109:80`);
 });
+
