@@ -1,6 +1,6 @@
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { Observable, Subject } from 'rxjs';
+import { Observable, Subject, interval, map } from 'rxjs';
 const PROTO_PATH = __dirname + '/message.proto';
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   keepCase: true,
@@ -10,30 +10,42 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   oneofs: true,
 });
 // Subject for bidirectional communication
-const subject = new Subject();
 const message_proto: any = grpc.loadPackageDefinition(packageDefinition).message;
-const client = new message_proto.StreamingService(
-  'localhost:3001',
-  grpc.credentials.createInsecure()
-);
+const client = new message_proto.Message('localhost:3001',
+  grpc.credentials.createInsecure());
+const call = client.sendMessageStream();
+
+let numueric = interval(1000)
+let notifcationSubject: Subject<any> = new Subject()
+let errorSubject: Subject<any> = new Subject()
+
+// Example: Send data to the server
+numueric.pipe(map(
+  number => `Notification ${number} from Client`
+)).subscribe((message: string) => notifcationSubject.next(message))
+
 
 // Create a bidirectional streaming call
-const call = client.StreamData();
-
 call.on('data', (response) => {
-  console.log('Received data from server:', response.message);
+  console.log(`Receied data from Server: ${response.message}`);
 });
+
+call.on('error', (err) => {
+  errorSubject.next(err)
+})
 
 call.on('end', () => {
   console.log('Server stream ended');
 });
 
 // Subscribe to the RxJS subject to send data to the server
-subject.subscribe((message) => {
+notifcationSubject.subscribe((message: string) => {
   console.log('Sending data to server:', message);
   call.write({ message });
 });
 
-// Example: Send data to the server
-subject.next('Hello from client');
-subject.next('Another message from client');
+errorSubject.subscribe(info => console.log(info))
+
+setTimeout(() => {
+  notifcationSubject.next('Error')
+}, 3000)

@@ -17,12 +17,10 @@ service Message {
 
 // The request message containing the user's name.
 message MessageRequest {
-  string sender = 1;
-  string message = 2;
+  string message = 1;
 }
 
 // The response message containing the greetings
 message MessageResponse {
-  string sender = 1;
-  string message = 2;
+  string message = 1;
 }
