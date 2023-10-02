@@ -3,7 +3,7 @@ import { config } from 'dotenv';
 import { Observable, Subject, interval } from 'rxjs';
 import { Server } from "socket.io";
 import { Message } from '../interfaces/message';
-import { AuthService } from '../services/authentication';
+import { AuthService } from '../services/authentication.service';
 import { MongoConnectionService } from '../services/mongo.service';
 
 config() // Just for reading .env file

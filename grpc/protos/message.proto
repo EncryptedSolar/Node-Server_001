@@ -9,7 +9,8 @@ package message;
 
 // The greeting service definition.
 service Message {
-  // Sends a greeting
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+
   rpc sendMessage (MessageRequest) returns (MessageResponse) {}
 
   rpc sendMessageStream (stream MessageRequest) returns (stream MessageResponse) {}
@@ -23,4 +24,10 @@ message MessageRequest {
 // The response message containing the greetings
 message MessageResponse {
   string message = 1;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
 }

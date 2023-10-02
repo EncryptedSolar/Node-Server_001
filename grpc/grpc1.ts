@@ -1,30 +1,23 @@
 import * as grpc from '@grpc/grpc-js';
-import * as protoLoader from '@grpc/proto-loader';
 import { Subject } from 'rxjs';
-const PROTO_PATH = __dirname + '/message.proto';
-const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
-    keepCase: true,
-    longs: String,
-    enums: String,
-    defaults: true,
-    oneofs: true,
-});
-const message_proto: any = grpc.loadPackageDefinition(packageDefinition).message;
+const message_proto = require('./protos/server.proto')
+
+// const message_proto = require('./protos/server.proto')
 const server = new grpc.Server();
 const respmsgSubject: Subject<any> = new Subject()
 const errorSubject: Subject<any> = new Subject()
 
 // Add the streamingData function to the gRPC service
-// server.addService(message_proto.Message.service, { sendMessage: sayHello });
+// Define your message_proto.Message service methods
 server.addService(message_proto.Message.service, {
     sendMessageStream: (call) => {
         call.on('data', (message) => {
-            if(message.message == 'Error') {
-                call.emit(`error`, new Error(`Custom Error from server`))
+            if (message.message == 'Error') {
+                call.emit('error', { message: 'GRPC operation Errors' });
             }
             console.log('Received message from client:', message);
             // Forward the received message to the RxJS subject
-            let respmsg = `${message.message} acknowledged!`
+            let respmsg = `${message.message} acknowledged!`;
             respmsgSubject.next(respmsg);
         });
 
@@ -33,8 +26,8 @@ server.addService(message_proto.Message.service, {
         });
 
         call.on('error', (err) => {
-            errorSubject.next(err)
-        })
+            errorSubject.next(err.message);
+        });
 
         // Create a stream to send data to the client
         const stream = call;
@@ -43,7 +36,13 @@ server.addService(message_proto.Message.service, {
             stream.write({ message });
         });
 
-        errorSubject.subscribe(info => console.log(info))
+        errorSubject.subscribe(info => console.log(info));
+    },
+
+    Check: (_, callback) => {
+        // health check logic here
+        // For simplicity, always return "SERVING" as status
+        callback(null, { status: 'SERVING' });
     },
 });
 
@@ -52,7 +51,6 @@ server.bindAsync('0.0.0.0:3001', grpc.ServerCredentials.createInsecure(), () => 
     console.log('gRPC server is running on port 3001');
     server.start();
 });
-
 
 /* Behaviour
 When server is disconnected, the client will still send regardless of whether server is alive. 
