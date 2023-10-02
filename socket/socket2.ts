@@ -1,61 +1,31 @@
 // require('dotenv').config();
 import { config } from 'dotenv';
-import { Subject, interval } from 'rxjs';
+import { OutgoingMessage } from 'http';
+import { Observable, Subject, interval } from 'rxjs';
 import { Server } from "socket.io";
 import { io } from "socket.io-client";
+import { Message } from '../interfaces/message';
 
 config()
 let client: string
 
-let messageInterval = interval(1000)
-messageInterval.subscribe(e => {
-    requestSubject.next(e)
-})
-let requestSubject: Subject<any> = new Subject()
+let outGoingInterval = interval(1000)
+let outGoingMessage: Subject<Message> = new Subject()
 let generalSubject: Subject<any> = new Subject()
 generalSubject.subscribe((element) => {
     console.log(element)
 })
-// createIOserver(parseInt(process.env.PORT2 as string)).subscribe((res) => {
-//     generalSubject.next(res)
-// })
-connectIOserver(process.env.URL as string, requestSubject).subscribe((res) => {
+
+connectIOserver(process.env.URL as string, outGoingMessage).subscribe((res) => {
     generalSubject.next(res)
 })
-
-
-
-function createIOserver(port: number): Subject<any> {
-    let responseSubject: Subject<any> = new Subject()
-    // Creating IO Server
-    const ioServer = new Server();
-    ioServer.listen(port);
-    console.log(`Socket.IO server is running on port ${port}`);
-
-    // Define a connection event handler
-    ioServer.on(`connection`, (socket) => {
-        console.log(`Client connected with ID: ${socket.id}`);
-
-        // Handle messages from clients
-        socket.on('message', (message) => {
-            let acknowledge = 'Message RECEIVED.'
-            ioServer.to(socket.id).emit('acknowledgement', acknowledge)
-        });
-
-        // Handle disconnection
-        socket.on('disconnect', () => {
-            console.log(`${socket.id} is disconnected.`);
-        });
-    });
-
-    return responseSubject
-}
+registerUser(outGoingMessage)
 
 /* ---------------------------------------------------------------------------------------------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------------------------------------------------------------------------------------------- */
 
 
-function connectIOserver(clientUrl: string, requestSubject?: Subject<any>): Subject<any> {
+function connectIOserver(clientUrl: string, outGoingMessage?: Subject<any> | Observable<any>): Subject<any> {
     let responseSubject: Subject<any> = new Subject()
     // Declare target server to be connected
     const ioClient = io(clientUrl); // Replace with your server address and port
@@ -70,7 +40,7 @@ function connectIOserver(clientUrl: string, requestSubject?: Subject<any>): Subj
     ioClient.on('message', (message: string) => {
         responseSubject.next(message)
     });
-    
+
     // Listen for incoming messages
     ioClient.on('acknowledgement', (message) => {
         responseSubject.next(message)
@@ -82,15 +52,29 @@ function connectIOserver(clientUrl: string, requestSubject?: Subject<any>): Subj
         responseSubject.next(message)
     });
 
-    requestSubject?.subscribe({
-        next: e => {
-            let message = {
-                id: e,
-                message: `Plese do something`
-            }
+    outGoingMessage?.subscribe({
+        next: message => {
             ioClient.emit('message', message)
         }
     })
 
     return responseSubject
+}
+
+function registerUser(subjectStream: Subject<Message>) {
+    setTimeout(() => {
+        let message: Message = {
+            user: 'guest',
+            action: {
+                action: 'register',
+                description: 'JWT token acquisition',
+                payload: {
+                    email: `test@email.com`,
+                    username: 'testUser',
+                    password: '1234'
+                }
+            }
+        }
+        subjectStream.next(message)
+    }, 2000)
 }

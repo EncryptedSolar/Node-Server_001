@@ -3,7 +3,7 @@ const fs = require('fs');
 const _ = require('lodash');
 
 const url = '0.0.0.0'
-const port = 80
+const port = 3000
 
 const server = http.createServer((req, res) => {
 
@@ -57,6 +57,6 @@ const server = http.createServer((req, res) => {
 // localhost is the default value for 2nd argument
 server.listen(port, url, () => {
   console.log(`Listening to port ${port}`);
-  console.log(`http://192.168.1.109:80`);
+  console.log(`http://localhost:3000`);
 });
 

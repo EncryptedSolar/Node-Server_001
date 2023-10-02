@@ -12,15 +12,17 @@ service Message {
   // Sends a greeting
   rpc sendMessage (MessageRequest) returns (MessageResponse) {}
 
-  rpc sendMessageStream (MessageRequest) returns (stream MessageResponse) {}
+  rpc sendMessageStream (stream MessageRequest) returns (stream MessageResponse) {}
 }
 
 // The request message containing the user's name.
 message MessageRequest {
-  string message = 1;
+  string sender = 1;
+  string message = 2;
 }
 
 // The response message containing the greetings
 message MessageResponse {
-  string message = 1;
+  string sender = 1;
+  string message = 2;
 }

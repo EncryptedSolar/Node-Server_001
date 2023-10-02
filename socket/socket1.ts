@@ -1,25 +1,41 @@
 // require('dotenv').config();
 import { config } from 'dotenv';
-import { Subject, interval } from 'rxjs';
+import { Observable, Subject, interval } from 'rxjs';
 import { Server } from "socket.io";
+import { Message } from '../interfaces/message';
+import { AuthService } from '../services/authentication';
+import { MongoConnectionService } from '../services/mongo.service';
 
-config()
+config() // Just for reading .env file
 
-const sequentialNumbers$ = interval(1000);
-sequentialNumbers$.subscribe((e: number) => requestSubject.next(e))
+let incomingMessage: Subject<any> = new Subject()
+let notificationSubject = interval(1000)
+let authService: AuthService = new AuthService()
+let mongoService: MongoConnectionService = new MongoConnectionService()
 
-let generalSubject: Subject<any> = new Subject()
-generalSubject.subscribe(e => console.log(e))
-let requestSubject: Subject<any> = new Subject()
+incomingMessage.subscribe({
+    next: (message: Message) => {
+        checkMessage(message).then((res) => {
 
-createIOserver(parseInt(process.env.PORT as string), requestSubject).subscribe((res) => {
-    generalSubject.next(res)
+        })
+    }
+})
+// Connect to mongoDB server && Create Socket io server
+connectMongo('usersDatabase', process.env.MONGO + '/users').then(() => {
+    return connectMongo('database2', process.env.MONGO + '/database2')
+}).then(() => {
+    return createIOserver(parseInt(process.env.PORT as string), notificationSubject).subscribe({
+        next: (message: Message) => checkMessage(message).then((res) => processMessage(res))
+    })
+}).then(() => {
+    console.log(mongoService.getAllConnectionStatus())
+}).catch((error) => {
+    console.error(`Error: ${error}`)
 })
 
-
-function createIOserver(port: number, requestSubject?: Subject<any>): Subject<any> {
+function createIOserver(port: number, notificationSubject?: Subject<any> | Observable<any>): Subject<any> {
     let responseSubject: Subject<any> = new Subject()
-    requestSubject?.subscribe({
+    notificationSubject?.subscribe({
         next: (element) => { ioServer.emit('message', `notification: ${element}`) },
         error: (err) => { console.error(err) },
         complete: () => { }
@@ -47,7 +63,6 @@ function createIOserver(port: number, requestSubject?: Subject<any>): Subject<an
         });
 
     });
-
     return responseSubject
 }
 
@@ -55,8 +70,40 @@ function createIOserver(port: number, requestSubject?: Subject<any>): Subject<an
 /* ---------------------------------------------------------------------------------------------------------------------------------------------------------- */
 
 
-function checkMessagse(message): any {
+async function checkMessage(message: Message): Promise<Message> {
     /* Check the messages. What is it and how to reply them */
-    let resposne
-    return resposne
+    return new Promise((resolve, reject) => {
+        if (message.action.action == 'login') {
+            console.log(`Login Request processing...`)
+            resolve(message)
+        }
+        if (message.action.action == 'register') {
+            console.log(`Registeration Request processing...`)
+            resolve(message)
+        }
+    })
 }
+
+async function processMessage(res: Message): Promise<any> {
+    return new Promise((resolve, reject) => {
+        console.log(`Processing Message: ${res.action?.action}.`)
+        authService.registerUser(res).then((res) => {
+            if (res == 1) resolve(res)
+        })
+    })
+}
+
+
+async function connectMongo(dbName: string, dbURI: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+        mongoService.createConnection(dbName, dbURI).then((res: string) => {
+            console.log(`[MainSocket]Connection established: ${res}`)
+            resolve(res)
+        })
+    })
+}
+
+
+
+
+

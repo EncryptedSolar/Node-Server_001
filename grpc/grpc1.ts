@@ -1,8 +1,6 @@
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { interval } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
-
+import { Subject } from 'rxjs';
 const PROTO_PATH = __dirname + '/message.proto';
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
     keepCase: true,
@@ -12,47 +10,35 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
     oneofs: true,
 });
 const message_proto: any = grpc.loadPackageDefinition(packageDefinition).message;
-
-// Implement your gRPC service methods
+const subject = new Subject();
 const server = new grpc.Server();
-
-// Implement the streamingData function for sendMessageStream
-function streamingData(call: grpc.ServerDuplexStream<any, any>) {
-    console.log('Client connected.');
-
-    // Create an RxJS interval observable that emits data every second.
-    const dataStream = interval(1000);
-
-    // Subscribe to the data stream and send each value to the client.
-    const subscription = dataStream.pipe(
-        takeUntil(call)
-    ).subscribe(
-        (value) => {
-            const response = { message: `Message ${value}` };
-            call.write(response);
-        },
-        (error) => {
-            console.error('Error:', error);
-        },
-        () => {
-            console.log('Streaming completed.');
-            call.end();
-        }
-    );
-
-    // Handle client stream end event.
-    call.on('end', () => {
-        console.log('Client disconnected.');
-        subscription.unsubscribe(); // Stop the RxJS subscription when the client disconnects.
-    });
-}
 
 function sayHello(callback) {
     callback(null, { message: 'Hello ' + 'come on!' });
 }
 
 // Add the streamingData function to the gRPC service
-server.addService(message_proto.Message.service, { sendMessage: sayHello });
+// server.addService(message_proto.Message.service, { sendMessage: sayHello });
+server.addService(message_proto.Message.service, {
+    sendMessageStream: (call) => {
+        call.on('data', (data) => {
+            console.log('Received data from client:', data.message);
+            // Forward the received data to the RxJS subject
+            subject.next(data.message);
+        });
+
+        call.on('end', () => {
+            console.log('Client stream ended');
+        });
+
+        // Create a stream to send data to the client
+        const stream = call;
+        subject.subscribe((message) => {
+            console.log('Sending data to client:', message);
+            stream.write({ message });
+        });
+    },
+});
 
 // Bind and start the server
 server.bindAsync('0.0.0.0:3001', grpc.ServerCredentials.createInsecure(), () => {

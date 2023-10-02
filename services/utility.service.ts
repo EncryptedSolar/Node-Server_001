@@ -1,5 +1,4 @@
-import _ = require("lodash")
-
+import * as _ from 'lodash'
 export class UtilityService {
     // Check Heap size
     // const v8 = require('v8');
