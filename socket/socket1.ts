@@ -33,6 +33,12 @@ connectMongo('usersDatabase', process.env.MONGO + '/users').then(() => {
     console.error(`Error: ${error}`)
 })
 
+setTimeout(() => {
+    console.log(`Getting status for usersdDatabse`)
+    mongoService.getConnectionStatusDetails('database2').subscribe((element: string) => console.log(element))
+    console.log(mongoService.getAllConnectionStatus())
+}, 3000)
+
 function createIOserver(port: number, notificationSubject?: Subject<any> | Observable<any>): Subject<any> {
     let responseSubject: Subject<any> = new Subject()
     notificationSubject?.subscribe({

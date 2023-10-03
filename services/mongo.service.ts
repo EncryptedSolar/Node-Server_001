@@ -3,11 +3,6 @@ import { Subject } from 'rxjs';
 
 export class MongoConnectionService {
     private connections: Record<string, mongoose.Connection> = {}
-    // The issue is it cannto be instantiated or defined unless there's a valid mongoose connection
-    private User!: mongoose.Model<any>; // Define User as a mongoose model
-
-    constructor() {
-    }
 
     public async createConnection(dbName: string, dbURI: string): Promise<string> {
         return new Promise(async (resolve, reject) => {
@@ -27,25 +22,25 @@ export class MongoConnectionService {
 
     public getConnectionStatusDetails(dbName: string): Subject<string> {
         if (this.connections[dbName]) {
-            let mongoStatusNotification: Subject<any> = new Subject()
+            let mongoStatusNotification: Subject<string> = new Subject()
             // Listen for the 'connected' event to check for a successful connection
             this.connections[dbName].on('connected', () => {
-                mongoStatusNotification.next(console.log(`[MongoService] Mongoose connection to ${dbName} is open.`))
+                mongoStatusNotification.next(`[MongoService] Mongoose connection to ${dbName} is open.`)
             });
 
             // Listen for the 'error' event to check for connection errors
             this.connections[dbName].on('error', (err) => {
-                mongoStatusNotification.next(console.error('[MongoService] Mongoose connection error:', err))
+                mongoStatusNotification.next('[MongoService] Mongoose connection error:')
             });
 
             // Listen for the 'disconnected' event to check for disconnections
             this.connections[dbName].on('disconnected', () => {
-                mongoStatusNotification.next(console.log(`[MongoService] Mongoose connection to ${dbName} is disconnected`))
+                mongoStatusNotification.next(`[MongoService] Mongoose connection to ${dbName} is disconnected`)
             });
 
             // Listen for the 'close' event to check when the connection is fully closed
             this.connections[dbName].on('close', () => {
-                mongoStatusNotification.next(console.log(`[MongoService] Mongoose connection to ${dbName} is closed.`))
+                mongoStatusNotification.next(`[MongoService] Mongoose connection to ${dbName} is closed.`)
             });
             return mongoStatusNotification
         }
@@ -74,18 +69,26 @@ export class MongoConnectionService {
     public async checkIfUserExist(email: string): Promise<any> {
         return new Promise(async (resolve, reject) => {
             try {
-                const existingUser = await this.User.findOne({ email: email });
+                // Check for an existing connection or request one
+                const connection = await this.establishConnection('usersDatabase', {
+                    useNewUrlParser: true,
+                    useUnifiedTopology: true,
+                    // Other connection options as needed
+                });
+
+                // Use the connection to perform the database operation
+                const existingUser = await connection.model('User').findOne({ email: email });
+
                 if (!existingUser) {
-                    resolve('User not found')
+                    resolve('User not found');
                 } else {
-                    reject('User already existed!')
+                    reject('User already exists!');
                 }
+            } catch (error) {
+                console.log(`Error: ${error}`);
+                reject(error);
             }
-            catch (error) {
-                console.log(`Error: ${error}`)
-                reject(error)
-            }
-        })
+        });
     }
 
 
@@ -95,8 +98,22 @@ export class MongoConnectionService {
         })
     }
 
+    private async establishConnection(connectionIdentifier, connectionOptions): Promise<any> {
+        return new Promise(async (resolve, reject) => {
+            console.log(this.connections);
+            // Check if a connection with the given identifier already exists
+            if (this.connections[connectionIdentifier]) {
+                resolve(connectionIdentifier);
+            } else {
+                console.log(`No connection with identifier '${connectionIdentifier}' found. Request a connection first.`);
+                reject(`No connection with identifier '${connectionIdentifier}' found. Request a connection first.`);
+            }
+        });
+    }
 
 }
+
+
 // Comment
 /* In this case, you export a single, shared instance of the MongoConnectionService, which can be used directly without the need to create new instances.
 Using export default new MongoConnectionService() is often more convenient when you want to have a single, shared instance of a service or class that

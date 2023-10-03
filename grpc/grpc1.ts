@@ -4,21 +4,26 @@ const message_proto = require('./protos/server.proto')
 
 // const message_proto = require('./protos/server.proto')
 const server = new grpc.Server();
-const respmsgSubject: Subject<any> = new Subject()
 const errorSubject: Subject<any> = new Subject()
 
 // Add the streamingData function to the gRPC service
 // Define your message_proto.Message service methods
 server.addService(message_proto.Message.service, {
     sendMessageStream: (call) => {
-        call.on('data', (message) => {
-            if (message.message == 'Error') {
-                call.emit('error', { message: 'GRPC operation Errors' });
-            }
-            console.log('Received message from client:', message);
+        // Create a stream to send data to the client
+        const stream = call;
+
+        call.on('data', (data: any) => {
+            // console.log(data) // it does return in string format
+            let payload = JSON.parse(data.message)
+            console.log(`Received Message from Client: ${payload.id}`);
             // Forward the received message to the RxJS subject
-            let respmsg = `${message.message} acknowledged!`;
-            respmsgSubject.next(respmsg);
+            let respmsg: any = {
+                message: `Message ${payload.id} acknowledged!`
+            }
+            let message: string = JSON.stringify(respmsg)
+            console.log(`Responding to client: ${respmsg.message}`);
+            call.write({ message });
         });
 
         call.on('end', () => {
@@ -29,14 +34,9 @@ server.addService(message_proto.Message.service, {
             errorSubject.next(err.message);
         });
 
-        // Create a stream to send data to the client
-        const stream = call;
-        respmsgSubject.subscribe((message) => {
-            console.log('Sending data to client:', message);
-            stream.write({ message });
+        errorSubject.subscribe(info => {
+            // call.emit('error', info)
         });
-
-        errorSubject.subscribe(info => console.log(info));
     },
 
     Check: (_, callback) => {
