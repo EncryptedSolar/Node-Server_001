@@ -10,19 +10,18 @@ const errorSubject: Subject<any> = new Subject()
 // Define your message_proto.Message service methods
 server.addService(message_proto.Message.service, {
     sendMessageStream: (call) => {
-        // Create a stream to send data to the client
-        const stream = call;
-
         call.on('data', (data: any) => {
             // console.log(data) // it does return in string format
             let payload = JSON.parse(data.message)
-            console.log(`Received Message from Client: ${payload.id}`);
+            console.log(`Received Message from Client: ${payload.appData?.msgId}`);
             // Forward the received message to the RxJS subject
             let respmsg: any = {
-                message: `Message ${payload.id} acknowledged!`
+                msgId: payload.appData?.msgId,
+                confirmationMessage: `Message ${payload.appData?.msgId} acknowledged!`
             }
             let message: string = JSON.stringify(respmsg)
-            console.log(`Responding to client: ${respmsg.message}`);
+            console.log(`Responding to client: ${respmsg.msgId}`);
+            // Note: The parameter here MUST BE STRICTLY be the same letter as defined in proto. Eg: message MessageRequest { string >>'message'<< = 1 }
             call.write({ message });
         });
 
@@ -35,12 +34,14 @@ server.addService(message_proto.Message.service, {
         });
 
         errorSubject.subscribe(info => {
+            console.log(info)
             // call.emit('error', info)
         });
     },
 
     Check: (_, callback) => {
         // health check logic here
+        // for now it is just sending the status message over to tell the client it is alive
         // For simplicity, always return "SERVING" as status
         callback(null, { status: 'SERVING' });
     },
@@ -51,6 +52,7 @@ server.bindAsync('0.0.0.0:3001', grpc.ServerCredentials.createInsecure(), () => 
     console.log('gRPC server is running on port 3001');
     server.start();
 });
+
 
 /* Behaviour
 When server is disconnected, the client will still send regardless of whether server is alive. 

@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "echo \"Error: no test specified\" && exit 1",
     "app": "node index.js",
-    "generatedata": "node socket/generateData.js",
+    "generatedata": "node services/utility/generateData.js",
     "socket1": "node socket/socket1.js",
     "socket2": "node socket/socket2.js",
     "grpc1": "node grpc/grpc1.js",
