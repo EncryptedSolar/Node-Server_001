@@ -28,7 +28,7 @@ export class ErrorHandlingService {
             if (report?.code == ColorCode.GREEN) {
                 this.connectionStatus = true
                 console.log(`Connection status report: ${this.connectionStatus} && ${report.message ?? report.errorMsg ?? 'No Message'}`)
-                deactivateMongoStreamSubscription()
+                messageStreamToMongo = this.deactivateMongoStreamSubscription(messageStreamToMongo)
                 this.releaseMessageFromLocalBuffer(this.bufferedStorage).then((resObs: Observable<MessageLog>) => {
                     resObs.subscribe({
                         next: message => releaseMessageSubject.next(message),
@@ -46,112 +46,116 @@ export class ErrorHandlingService {
                         complete: () => console.log(`All Mongo data are transferred `)
                     })
                 }).catch((err) => console.error(err))
-                activateReleaseSubscription()
+                messageReleaseSubscription = this.activateReleaseSubscription(messageReleaseSubscription, messageToBePublished, releaseMessageSubject)
             }
             if (report?.code == ColorCode.YELLOW) {
                 this.connectionStatus = false
                 console.log(`Connection status report: ${this.connectionStatus} && ${report.message ?? report.errorMsg ?? 'No Message'}`)
-                deactivateReleaseSubscription()
-                activateBufferSubscription(this.bufferedStorage)
+                messageReleaseSubscription = this.deactivateReleaseSubscription(messageReleaseSubscription)
+                messageBufferSubscription = this.activateBufferSubscription(this.bufferedStorage, messageBufferSubscription, messageToBePublished)
             }
             if (report?.code == ColorCode.RED) {
                 this.connectionStatus = false
                 console.log(`Connection status report: Server down. ${report.message} lol`)
-                deactivateBufferSubscription()
-                this.transferBufferedMessagseToMongoStorage(this.bufferedStorage)
-                activateMongoStreamSubscription()
+                this.transferBufferedMessagseToMongoStorage(this.bufferedStorage, messageBufferSubscription)
+                messageBufferSubscription = this.deactivateBufferSubscription(messageBufferSubscription)
+                messageStreamToMongo = this.activateMongoStreamSubscription(messageStreamToMongo, messageToBePublished)
             }
             if (!report.code || report.code == "") {
                 console.log(`Unknown message...`)
             }
         })
-
-
-        // Function to activate the subscription
-        function activateReleaseSubscription() {
-            if (!messageReleaseSubscription) {
-                messageReleaseSubscription = messageToBePublished.subscribe({
-                    next: (message: MessageLog) => {
-                        console.log(`Releasing ${message.appData.msgId}...`);
-                        releaseMessageSubject.next(message);
-                    },
-                    error: (err) => console.error(err),
-                    complete: () => { },
-                });
-                console.log(`Subscription message release activated.`);
-            } else {
-                console.log(`Subscription message release  is already active.`);
-            }
-        }
-
-        // Function to deactivate the subscription
-        function deactivateReleaseSubscription() {
-            if (messageReleaseSubscription) {
-                messageReleaseSubscription.unsubscribe();
-                messageReleaseSubscription = null;
-                console.log(`Subscription message release deactivated.`);
-            } else {
-                console.log(`Subscription message release is already deactivated.`);
-            }
-        }
-
-        // Function to activate the subscription
-        function activateBufferSubscription(bufferStorage: MessageLog[]) {
-            if (!messageBufferSubscription) {
-                messageBufferSubscription = messageToBePublished.subscribe({
-                    next: (message: MessageLog) => {
-                        console.log(`Buffering ${message.appData.msgId}...`);
-                        bufferStorage.push(message)
-                    },
-                    error: (err) => console.error(err),
-                    complete: () => { },
-                });
-                console.log(`Subscription message buffer activated.`);
-            } else {
-                console.log(`Subscription message buffer  is already active.`);
-            }
-        }
-
-        // Function to deactivate the subscription
-        function deactivateBufferSubscription() {
-            if (messageBufferSubscription) {
-                messageBufferSubscription.unsubscribe();
-                messageBufferSubscription = null;
-                console.log(`Subscription message buffer deactivated.`);
-            } else {
-                console.log(`Subscription message buffer is already deactivated.`);
-            }
-        }
-
-        // Function to activate the subscription
-        function activateMongoStreamSubscription() {
-            if (!messageStreamToMongo) {
-                messageStreamToMongo = messageToBePublished.subscribe({
-                    next: (message: MessageLog) => {
-                        console.log(`Saving ${message.appData.msgId}...`);
-                        // this.saveToMongo(message)
-                    },
-                    error: (err) => console.error(err),
-                    complete: () => { },
-                });
-                console.log(`Subscription message mongo stream activated.`);
-            } else {
-                console.log(`Subscription message mongo stream  is already active.`);
-            }
-        }
-
-        // Function to deactivate the subscription
-        function deactivateMongoStreamSubscription() {
-            if (messageStreamToMongo) {
-                messageStreamToMongo.unsubscribe();
-                messageStreamToMongo = null;
-                console.log(`Subscription message mongo stream deactivated.`);
-            } else {
-                console.log(`Subscription message mongo stream is already deactivated.`);
-            }
-        }
-
         return releaseMessageSubject
+    }
+
+    // Function to activate the subscription
+    private activateReleaseSubscription(messageReleaseSubscription, messageToBePublished, releaseMessageSubject): any {
+        if (!messageReleaseSubscription) {
+            messageReleaseSubscription = messageToBePublished.subscribe({
+                next: (message: MessageLog) => {
+                    console.log(`Releasing ${message.appData.msgId}...`);
+                    releaseMessageSubject.next(message);
+                },
+                error: (err) => console.error(err),
+                complete: () => { },
+            });
+            console.log(`Subscription message release activated.`);
+        } else {
+            console.log(`Subscription message release  is already active.`);
+        }
+        return messageReleaseSubscription
+    }
+
+    // Function to deactivate the subscription
+    private deactivateReleaseSubscription(messageReleaseSubscription): any {
+        if (messageReleaseSubscription) {
+            messageReleaseSubscription.unsubscribe();
+            messageReleaseSubscription = null;
+            console.log(`Subscription message release deactivated.`);
+        } else {
+            console.log(`Subscription message release is already deactivated.`);
+        }
+        return messageReleaseSubscription
+    }
+
+    // Function to activate the subscription
+    private activateBufferSubscription(bufferStorage: MessageLog[], messageBufferSubscription, messageToBePublished): any {
+        if (!messageBufferSubscription) {
+            messageBufferSubscription = messageToBePublished.subscribe({
+                next: (message: MessageLog) => {
+                    console.log(`Buffering ${message.appData.msgId}...  Local array length: ${bufferStorage.length}`);
+                    bufferStorage.push(message)
+                },
+                error: (err) => console.error(err),
+                complete: () => { },
+            });
+            console.log(`Subscription message buffer activated.`);
+        } else {
+            console.log(`Subscription message buffer is already active.`);
+        }
+        return messageBufferSubscription
+    }
+
+    // Function to deactivate the subscription
+    private deactivateBufferSubscription(messageBufferSubscription): any {
+        if (messageBufferSubscription) {
+            messageBufferSubscription.unsubscribe();
+            messageBufferSubscription = null;
+            console.log(`Subscription message buffer deactivated.`);
+        } else {
+            console.log(`Subscription message buffer is already deactivated.`);
+        }
+        return null
+    }
+
+    // Function to activate the subscription
+    private activateMongoStreamSubscription(messageStreamToMongo, messageToBePublished): any {
+        if (!messageStreamToMongo) {
+            messageStreamToMongo = messageToBePublished.subscribe({
+                next: (message: MessageLog) => {
+                    console.log(`Saving ${message.appData.msgId}...`);
+                    this.saveToMongo(message)
+                },
+                error: (err) => console.error(err),
+                complete: () => { },
+            });
+            console.log(`Subscription message mongo stream activated.`);
+        } else {
+            console.log(`Subscription message mongo stream  is already active.`);
+        }
+        return messageStreamToMongo
+    }
+
+    // Function to deactivate the subscription
+    private deactivateMongoStreamSubscription(messageStreamToMongo): any {
+        if (messageStreamToMongo) {
+            messageStreamToMongo.unsubscribe();
+            messageStreamToMongo = null;
+            console.log(`Subscription message mongo stream deactivated.`);
+        } else {
+            console.log(`Subscription message mongo stream is already deactivated.`);
+        }
+        return messageStreamToMongo
     }
 
     private async transferMessageToLocalStorage(message: Subject<MessageLog>): Promise<void> {
@@ -167,7 +171,7 @@ export class ErrorHandlingService {
         })
 
         if (localArray.length < 1) this.bufferedStorage = localArray
-        console.log("Local Array is empty. Finished transferring to files.");
+        console.log('Local Array is empty. Finished transferring to files.')
 
         async function writeMessage(message: MessageLog, filename: string) {
             try {
@@ -194,7 +198,7 @@ export class ErrorHandlingService {
         })
     }
 
-    private async transferBufferedMessagseToMongoStorage(bufferedMessage: MessageLog[]) {
+    private async transferBufferedMessagseToMongoStorage(bufferedMessage: MessageLog[], messageBufferSubscription) {
         let bufferedStorage: Observable<MessageLog> = from(bufferedMessage)
         bufferedStorage.subscribe({
             next: (message: MessageLog) => {
@@ -205,7 +209,9 @@ export class ErrorHandlingService {
             error: (error) => console.error(error),
             complete: () => {
                 this.bufferedStorage = []
-                console.log(`All ${bufferedMessage.length} buffered messages have been sent for transfer to ${this.mongoUrl}. Current length: ${this.bufferedStorage.length}`)
+                if (messageBufferSubscription) {
+                    console.log(`All ${bufferedMessage.length} buffered messages have been sent for transfer to ${this.mongoUrl}. Current length: ${this.bufferedStorage.length}`)
+                }
             }
         })
     }
@@ -278,5 +284,3 @@ export class ErrorHandlingService {
     }
 
 }
-
-

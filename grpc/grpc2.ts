@@ -19,7 +19,7 @@ errorHandlingService.handleMessage(dataMessages, statusControl).subscribe((messa
 })
 
 // Create a bidirectional streaming call
-async function connectServer(server): Promise<string> {
+async function connectServer(server: string, alreadyHealthCheck: boolean): Promise<string> {
   let subscription: any
   let unsubscribed: boolean = false
 
@@ -28,7 +28,7 @@ async function connectServer(server): Promise<string> {
     const call = client.sendMessageStream();
 
     call.on('status', (status: Status) => {
-      console.log(status) // For more info: https://grpc.github.io/grpc/core/md_doc_statuscodes.html
+      // console.log(status) // For more info: https://grpc.github.io/grpc/core/md_doc_statuscodes.html
       if (status) { // only returns a status when there's error. Otherwise it just waits
         resolve('No connection established. Server is not responding..')
       } else {
@@ -50,7 +50,7 @@ async function connectServer(server): Promise<string> {
       return new Promise((resolve, reject) => {
         client.Check({}, (error, response) => {
           if (response) {
-            console.log(`Health check status: ${response.status} Server Connected`);
+            console.log(`GRPC Health check status: ${response.status} Server Connected`);
             let report: ReportStatus = {
               code: ColorCode.GREEN,
               message: `Good to go!!!`
@@ -58,7 +58,7 @@ async function connectServer(server): Promise<string> {
             resolve(true)
             statusControl.next(report)
           } else {
-            console.error(`Health check failed: ${error}`);
+            if (alreadyHealthCheck == false) console.error(`Health check failed: ${error}`);
           }
         })
       })
@@ -84,6 +84,19 @@ async function connectServer(server): Promise<string> {
           console.log(`Received acknowledgement from Server: ${message.msgId ?? `Invalid`}`);
         });
 
+        // This guy doesnt work. It is for the entire RPC call. Because I am using bi-directional streaming here
+        // https://grpc.io/docs/what-is-grpc/core-concepts/#streaming
+        // call.on('status', (status) => {
+        //   if (status.code === grpc.status.OK) {
+        //     console.log(`Message trasmission operation is successful`)
+        //     // RPC completed successfully
+        //   } else {
+        //     // Handle the error using status.code and status.details
+        //     console.error(`Error code: ${status.code}`);
+        //     console.error(`Error details: ${status.details}`);
+        //   }
+        // });
+
         call.on('error', (err) => {
           resolve(err)
         });
@@ -104,25 +117,31 @@ async function connectServer(server): Promise<string> {
 async function manageConnection() {
   let consecutiveResolutions = 0;
   let lastResolutionTime = Date.now();
+  let alreadyHealthCheck: boolean = false
+  let yellowErrorEmission: boolean = false
+  let redErrorEmission: boolean = false
 
   while (true) {
     try {
-      await connectServer('localhost:3001');
+      await connectServer('localhost:3001', alreadyHealthCheck);
       // If connection resolves (indicating failure), increment the count
       consecutiveResolutions++;
       console.log(`Reconnection Attempt: ${consecutiveResolutions}`)
+      alreadyHealthCheck = true
 
 
       // If there are 60 consecutive resolutions, log an error and break the loop
-      if (consecutiveResolutions >= 5) {
+      if (consecutiveResolutions >= 5 && redErrorEmission == false) {
+        redErrorEmission = true
         console.error('Connection failed 60 times. Stopping connection attempts.');
         let error: ReportStatus = {
           code: ColorCode.RED,
           message: 'Initiate Doomsday protocol....'
         }
         statusControl.next(error)
-        // break;
-      } else {
+      }
+      if (consecutiveResolutions < 5 && yellowErrorEmission == false) {
+        yellowErrorEmission = true
         let error: ReportStatus = {
           code: ColorCode.YELLOW,
           // message: `Reconnection Attempt: ${consecutiveResolutions}. Server has yet to respond`
@@ -141,6 +160,9 @@ async function manageConnection() {
     const timeSinceLastResolution = currentTime - lastResolutionTime;
     if (timeSinceLastResolution > 3000) {
       consecutiveResolutions = 0;
+      yellowErrorEmission = false
+      redErrorEmission = false
+      alreadyHealthCheck = false
     }
 
     // Update the last resolution time
