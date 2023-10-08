@@ -1,139 +1,282 @@
 import * as _ from 'lodash'
-import { Subject } from 'rxjs'
-
+import * as fs from 'fs'
+import mongoose, { Model, Schema } from 'mongoose';
+import { Observable, Subject, Subscription, from } from 'rxjs'
+import { ColorCode, MessageLog, ReportStatus } from '../interfaces/general.interface'
+require('dotenv').config();
 export class ErrorHandlingService {
-    private trackedMessage: stateMessage[] = []
-    private bufferedStorage: stateMessage[] = []
+    private mongoUrl: string = process.env.MONGO + 'emergencyStorage'
+    private bufferedStorage: MessageLog[] = []
+    private connectionStatus: boolean = true
+    private mongoConnection: any
+    private messageModel: any
+    private storageOptions: string = process.env.Storage as string
 
-    public handleMessage(args: any) {
-        console.log(`Processing data....`)
-        this.processArgument(args)
+    constructor() {
+        this.manageMongoConnection()
+        this.mongoConnection.once('open', () => {
+            this.messageModel = this.mongoConnection.model('Message', require('../models/message.schema'));
+        })
     }
 
-    public displayTable() {
-        if (Array.isArray(this.trackedMessage) && this.trackedMessage.length > 0) {
-            const headerRow = Object.keys(this.trackedMessage[0]).join('\t');
-            console.log(headerRow);
+    public handleMessage(messageToBePublished: Subject<MessageLog>, statusReport: Subject<ReportStatus>): Subject<MessageLog> {
+        let releaseMessageSubject: Subject<MessageLog> = new Subject()
+        let messageReleaseSubscription: Subscription | null = null; // Initialize as null
+        let messageBufferSubscription: Subscription | null = null
+        let messageStreamToMongo: Subscription | null = null
+        statusReport.subscribe((report: any) => {
+            if (report?.code == ColorCode.GREEN) {
+                this.connectionStatus = true
+                console.log(`Connection status report: ${this.connectionStatus} && ${report.message ?? report.errorMsg ?? 'No Message'}`)
+                deactivateMongoStreamSubscription()
+                this.releaseMessageFromLocalBuffer(this.bufferedStorage).then((resObs: Observable<MessageLog>) => {
+                    resObs.subscribe({
+                        next: message => releaseMessageSubject.next(message),
+                        error: err => console.error(err),
+                        complete: () => {
+                            this.bufferedStorage = []
+                            console.log(`Reset buffer Storage count: ${this.bufferedStorage.length}. All messages have been released back into the stream.`)
+                        }
+                    })
+                }).catch((err) => console.error(err))
+                this.releaseMessageFromMongoStorage().then((resObs: Subject<MessageLog>) => {
+                    resObs.subscribe({
+                        next: message => releaseMessageSubject.next(message),
+                        error: err => console.error(err),
+                        complete: () => console.log(`All Mongo data are transferred `)
+                    })
+                }).catch((err) => console.error(err))
+                activateReleaseSubscription()
+            }
+            if (report?.code == ColorCode.YELLOW) {
+                this.connectionStatus = false
+                console.log(`Connection status report: ${this.connectionStatus} && ${report.message ?? report.errorMsg ?? 'No Message'}`)
+                deactivateReleaseSubscription()
+                activateBufferSubscription(this.bufferedStorage)
+            }
+            if (report?.code == ColorCode.RED) {
+                this.connectionStatus = false
+                console.log(`Connection status report: Server down. ${report.message} lol`)
+                deactivateBufferSubscription()
+                this.transferBufferedMessagseToMongoStorage(this.bufferedStorage)
+                activateMongoStreamSubscription()
+            }
+            if (!report.code || report.code == "") {
+                console.log(`Unknown message...`)
+            }
+        })
 
-            // Create a separator row
-            const separatorRow = '-'.repeat(headerRow.length);
-            console.log(separatorRow);
 
-            // Create rows for the data
-            this.trackedMessage.forEach((row) => {
-                const rowData = Object.values(row).join('\t');
-                console.log(rowData);
-            });
-        } else {
-            console.log("No data available in 'trackedMessage'");
+        // Function to activate the subscription
+        function activateReleaseSubscription() {
+            if (!messageReleaseSubscription) {
+                messageReleaseSubscription = messageToBePublished.subscribe({
+                    next: (message: MessageLog) => {
+                        console.log(`Releasing ${message.appData.msgId}...`);
+                        releaseMessageSubject.next(message);
+                    },
+                    error: (err) => console.error(err),
+                    complete: () => { },
+                });
+                console.log(`Subscription message release activated.`);
+            } else {
+                console.log(`Subscription message release  is already active.`);
+            }
+        }
+
+        // Function to deactivate the subscription
+        function deactivateReleaseSubscription() {
+            if (messageReleaseSubscription) {
+                messageReleaseSubscription.unsubscribe();
+                messageReleaseSubscription = null;
+                console.log(`Subscription message release deactivated.`);
+            } else {
+                console.log(`Subscription message release is already deactivated.`);
+            }
+        }
+
+        // Function to activate the subscription
+        function activateBufferSubscription(bufferStorage: MessageLog[]) {
+            if (!messageBufferSubscription) {
+                messageBufferSubscription = messageToBePublished.subscribe({
+                    next: (message: MessageLog) => {
+                        console.log(`Buffering ${message.appData.msgId}...`);
+                        bufferStorage.push(message)
+                    },
+                    error: (err) => console.error(err),
+                    complete: () => { },
+                });
+                console.log(`Subscription message buffer activated.`);
+            } else {
+                console.log(`Subscription message buffer  is already active.`);
+            }
+        }
+
+        // Function to deactivate the subscription
+        function deactivateBufferSubscription() {
+            if (messageBufferSubscription) {
+                messageBufferSubscription.unsubscribe();
+                messageBufferSubscription = null;
+                console.log(`Subscription message buffer deactivated.`);
+            } else {
+                console.log(`Subscription message buffer is already deactivated.`);
+            }
+        }
+
+        // Function to activate the subscription
+        function activateMongoStreamSubscription() {
+            if (!messageStreamToMongo) {
+                messageStreamToMongo = messageToBePublished.subscribe({
+                    next: (message: MessageLog) => {
+                        console.log(`Saving ${message.appData.msgId}...`);
+                        // this.saveToMongo(message)
+                    },
+                    error: (err) => console.error(err),
+                    complete: () => { },
+                });
+                console.log(`Subscription message mongo stream activated.`);
+            } else {
+                console.log(`Subscription message mongo stream  is already active.`);
+            }
+        }
+
+        // Function to deactivate the subscription
+        function deactivateMongoStreamSubscription() {
+            if (messageStreamToMongo) {
+                messageStreamToMongo.unsubscribe();
+                messageStreamToMongo = null;
+                console.log(`Subscription message mongo stream deactivated.`);
+            } else {
+                console.log(`Subscription message mongo stream is already deactivated.`);
+            }
+        }
+
+        return releaseMessageSubject
+    }
+
+    private async transferMessageToLocalStorage(message: Subject<MessageLog>): Promise<void> {
+        let localArray: MessageLog[] = this.bufferedStorage
+        let filename = `localstorage.json`;
+
+        while (localArray.length > 0) {
+            let objectToWrite = this.bufferedStorage[0];
+            await writeMessage(objectToWrite, filename)
+        }
+        message.subscribe((message: MessageLog) => {
+            writeMessage(message, filename)
+        })
+
+        if (localArray.length < 1) this.bufferedStorage = localArray
+        console.log("Local Array is empty. Finished transferring to files.");
+
+        async function writeMessage(message: MessageLog, filename: string) {
+            try {
+                let stringifiedMessage = JSON.stringify(message);
+                await fs.promises.appendFile(filename, stringifiedMessage + "\r\n")
+                console.log(`Successfully transferred ${filename}`);
+                localArray.shift();
+            } catch (err) {
+                console.error(`Error trasferring ${filename}:`, err);
+            }
         }
     }
 
-    private processArgument(args: any): boolean {
-        switch (true) {
-          case this.isMessageLog(args):
-            console.log(`Valid Message Object! ${args.appData.msgId}`);
-            this.assignTracker(args as MessageLog);
-            break;
-          case this.isServerResponse(args):
-            console.log(`Valid Server Response: ${args.msgId}`);
-            this.removeTrackedMessage(args as ServerResponse);
-            break;
-          case this.isErrorResponse(args):
-            console.log('Valid Error or UnknownObject');
-            // You can add code here for error handling
-            break;
-          default: 
-            console.log('Unknown argument type');
-            break;
-        }
-        return false;
-      }
-      
-
-    private assignTracker(message: MessageLog): stateMessage {
-        console.log(`Assigning state to ${message.appData.msgId}`)
-        let assignTracking: stateMessage = {
-            id: message.appData?.msgId ?? 'no id found',
-            state: 'not sent'
-        }
-        this.trackedMessage.push(assignTracking)
-        return assignTracking
+    private async saveToMongo(message: MessageLog): Promise<boolean> {
+        return new Promise((resolve, reject) => {
+            // let messageModel: Model<any> = this.mongoConnection.model('Message', require('../models/message.schema'))
+            this.messageModel.create(message).then(() => {
+                console.log(`Saved MessageID ${message.appData.msgId} into ${this.mongoUrl}`);
+                resolve(true)
+            }).catch((err) => {
+                console.log(`MongoSaveError: ${err.message}`)
+                reject(err)
+            })
+        })
     }
 
-    private removeTrackedMessage(args: ServerResponse) {
-        this.trackedMessage.forEach((message: stateMessage) => {
-            if (message.id == args.msgId) {
-                let indexToRemove = this.trackedMessage.findIndex(obj => obj.id === message.id);
-                if (indexToRemove !== -1) {
-                    console.log(`Deleting ${args.msgId}...`)
-                    this.trackedMessage.splice(indexToRemove, 1);
-                }
+    private async transferBufferedMessagseToMongoStorage(bufferedMessage: MessageLog[]) {
+        let bufferedStorage: Observable<MessageLog> = from(bufferedMessage)
+        bufferedStorage.subscribe({
+            next: (message: MessageLog) => {
+                this.saveToMongo(message).then((res) => {
+                    console.log(`Message ${message.appData.msgId} saved successfully...`)
+                }).catch((err) => console.error(err))
+            },
+            error: (error) => console.error(error),
+            complete: () => {
+                this.bufferedStorage = []
+                console.log(`All ${bufferedMessage.length} buffered messages have been sent for transfer to ${this.mongoUrl}. Current length: ${this.bufferedStorage.length}`)
             }
         })
     }
 
-    private storeMessageInBuffer(message: stateMessage) {
-        this.bufferedStorage.push(message)
+    private async releaseMessageFromLocalBuffer(bufferedStorage: MessageLog[]): Promise<Observable<MessageLog>> {
+        return new Promise((resolve, reject) => {
+            if (bufferedStorage.length > 1) {
+                let caseVariable = this.bufferedStorage.length > 1;
+                console.log(`Releasing data from local buffer instance. There ${caseVariable ? "is" : "are"} ${this.bufferedStorage.length} messages...`);
+                let returnArrayObs: Observable<MessageLog> = from(bufferedStorage)
+                resolve(returnArrayObs)
+            } else {
+                let message = `There is no data in stored in local instance`
+                reject(message)
+            }
+        })
     }
 
-    private isServerResponse(obj: any): obj is ServerResponse {
-        return (
-            'confirmationMessage' in obj &&
-            'msgId' in obj
-        )
+    private async releaseMessageFromMongoStorage(): Promise<Subject<MessageLog>> {
+        return new Promise((resolve, reject) => {
+            let dataSubject: Subject<MessageLog> = new Subject()
+            const cursor = this.messageModel.find().lean().cursor();
+
+            cursor.on('data', (message) => {
+                // Emit each document to the subject
+                dataSubject.next(message);
+            });
+
+            cursor.on('end', async () => {
+                // All data has been streamed, complete the subject
+                dataSubject.complete();
+
+                // Delete the data once it has been streamed
+                try {
+                    await this.messageModel.deleteMany({});
+                    console.log('Data in Mongo deleted successfully.');
+                } catch (err) {
+                    console.error('Error deleting data:', err);
+                    reject(err)
+                }
+            });
+            resolve(dataSubject)
+        })
     }
 
-    private isErrorResponse(obj: any): obj is any {
-        return obj
+    private async connectToMongoDatabase(): Promise<any> {
+        return new Promise((resolve, reject) => {
+            console.log(this.mongoUrl)
+            this.mongoConnection = mongoose.createConnection(this.mongoUrl)
+            this.mongoConnection.on('error', (error) => {
+                console.error('Connection error:', error);
+                resolve('')
+            });
+            this.mongoConnection.once('open', () => {
+                console.log(`Connected to ${process.env.MONGO}`);
+            });
+        })
     }
 
-    private isMessageLog(obj: any): obj is MessageLog {
-        return (
-            'appLogLocId' in obj &&
-            'appData' in obj &&
-            'msgId' in obj.appData &&
-            'msgLogDateTime' in obj.appData &&
-            'msgDateTime' in obj.appData &&
-            'msgTag' in obj.appData &&
-            'msgPayload' in obj.appData
-        );
+    private async manageMongoConnection() {
+        while (true) {
+            try {
+                await this.connectToMongoDatabase();
+            } catch (error) {
+                // Connection did not resolve, 
+                console.log(`Something Wrong occured. Please check at manageMongoConnection`)
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second before the next attempt
+        }
     }
-
-
 
 }
-interface stateMessage {
-    id: string,
-    state: 'not sent' | 'sent' | 'acknowledged by server' | 'stored in array instance' | 'stored in local storage',
-    date?: Date,
-}
-interface MessageLog {
-    appLogLocId: string,
-    appData: {
-        msgId: string,
-        msgLogDateTime: string,
-        msgDateTime: string,
-        msgTag: string[],
-        msgPayload: any
-    }
-}
-interface ServerResponse {
-    confirmationMessage: string,
-    msgId: string
-}
 
 
-// public handleMessage(messageToBePublished: Subject<any> | Observable<any>): Subject<any> | Observable<any> {
-//     messageToBePublished.pipe(map(
-//         message => {
-//             let trackMsg: stateMessage = {
-//                 id: message.appData?.msgId ?? 'no Id found',
-//                 state: 'not sent'
-//             }
-//             this.trackedMessage.push(trackMsg)
-//         }
-//     ))
-
-//     return messageToBePublished
-// }

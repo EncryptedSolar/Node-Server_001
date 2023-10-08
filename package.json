@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "training": "node test/test.js",
     "app": "node index.js",
     "generatedata": "node services/utility/generateData.js",
     "socket1": "node socket/socket1.js",
@@ -26,15 +28,15 @@
     "lodash": "^4.17.21",
     "minimist": "^1.2.8",
     "mongo": "^0.1.0",
-    "mongoose": "^7.5.3",
+    "mongoose": "^7.6.0",
     "passport": "^0.6.0",
     "passport-local": "^1.0.0",
     "rxjs": "^7.8.1",
     "socket.io": "^4.7.2",
-    "socket.io-client": "^4.7.2",
-    "typescript": "^5.2.2"
+    "socket.io-client": "^4.7.2"
   },
   "devDependencies": {
-    "@types/node": "^20.6.0"
+    "@types/node": "^20.6.0",
+    "typescript": "^5.2.2"
   }
 }

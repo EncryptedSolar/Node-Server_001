@@ -12,39 +12,40 @@ export function createMessage(): any {
       msgLogDateTime: faker.date.past(),
       msgDateTime: faker.date.past(),
       msgTag: faker.helpers.arrayElements(tags, 3),
-      msgPayload: {
-        header: {
-          messageType: "Command",
-          messageID: faker.string.uuid(),
-          messageName: faker.word.adjective(),
-          dateCreated: faker.date.recent(),
-          isAggregated: faker.datatype.boolean(),
-          servicecId: faker.string.uuid(),
-          userId: faker.string.uuid(),
-          requesterId: faker.string.uuid(),
-          messagePreoducerInformation: {
-            origin: {
-              userApplication: {
-                userAppId: faker.finance.accountName(),
-                userAppName: faker.person.jobTitle()
-              }
-            },
-            components: faker.word.adverb()
-          },
-          security: {
-            ucpid: faker.string.uuid()
-          },
-          messageDataLocation: {
-            isEmbaded: faker.datatype.boolean()
-          },
-          messageDataFormat: {
-            dataFormate: faker.date.anytime()
-          },
-          requestExecutiomNode: faker.number.int(),
-          requestTimeOut: faker.number.int(),
-          command: faker.word.adjective()
-        },
-      }
+      msgPayload: faker.lorem.paragraphs(5)
+      // msgPayload: {
+      //   header: {
+      //     messageType: "Command",
+      //     messageID: faker.string.uuid(),
+      //     messageName: faker.word.adjective(),
+      //     dateCreated: faker.date.recent(),
+      //     isAggregated: faker.datatype.boolean(),
+      //     servicecId: faker.string.uuid(),
+      //     userId: faker.string.uuid(),
+      //     requesterId: faker.string.uuid(),
+      //     messagePreoducerInformation: {
+      //       origin: {
+      //         userApplication: {
+      //           userAppId: faker.finance.accountName(),
+      //           userAppName: faker.person.jobTitle()
+      //         }
+      //       },
+      //       components: faker.word.adverb()
+      //     },
+      //     security: {
+      //       ucpid: faker.string.uuid()
+      //     },
+      //     messageDataLocation: {
+      //       isEmbaded: faker.datatype.boolean()
+      //     },
+      //     messageDataFormat: {
+      //       dataFormate: faker.date.anytime()
+      //     },
+      //     requestExecutiomNode: faker.number.int(),
+      //     requestTimeOut: faker.number.int(),
+      //     command: faker.word.adjective()
+      //   },
+      // }
     }
   }
 }

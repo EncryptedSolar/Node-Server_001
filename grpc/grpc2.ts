@@ -2,67 +2,77 @@ import * as grpc from '@grpc/grpc-js';
 import * as fs from 'fs'
 import { Subject } from 'rxjs';
 import { ErrorHandlingService } from '../services/error.handling.service';
+import { Status } from '@grpc/grpc-js/build/src/constants';
+import { ColorCode, ReportStatus } from '../interfaces/general.interface';
 
 // Subject for bidirectional communication
 const message_proto = require('./protos/server.proto')
 const errorHandlingService: ErrorHandlingService = new ErrorHandlingService()
 const messagesJSON: any = fs.readFileSync('payload.json')
-let parsedMessages = JSON.parse(messagesJSON) // load the fake messages generated for this trial 
-let notificationSubject: Subject<any> = new Subject() // Sample notification message to be transmitted over to target server
-let errorSubject: Subject<any> = new Subject()
-let statusControl: Subject<any> = new Subject()
+let parsedMessages: any[] = JSON.parse(messagesJSON) // load the fake messages generated for this trial 
+let messageToBeTransmitted: Subject<any> = new Subject() // Sample message to be transmitted over to target server
+let statusControl: Subject<ReportStatus> = new Subject() // Listening for error events and states
+let dataMessages = stream() // Emulate messges to be sent over to target server
 
-statusControl.subscribe((message) => {
-  errorHandlingService.handleMessage(message)
-})
-
-errorSubject.subscribe(info => {
-  console.log(info)
-  // statusControl.next(info)
+errorHandlingService.handleMessage(dataMessages, statusControl).subscribe((messages) => {
+  messageToBeTransmitted.next(messages)
 })
 
 // Create a bidirectional streaming call
 async function connectServer(server): Promise<string> {
   let subscription: any
   let unsubscribed: boolean = false
-  let connectionStatus: boolean = false
 
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const client = new message_proto.Message(server, grpc.credentials.createInsecure());
     const call = client.sendMessageStream();
-    
-    // Check connection
-    client.Check({}, (error, response) => {
-      if (error) {
-        console.error(`Health check failed: ${error}`);
-        errorSubject.next(error)
-        connectionStatus = false
-        resolve(error.message); // it should have been resolved here, and the following code would not have run
+
+    call.on('status', (status: Status) => {
+      console.log(status) // For more info: https://grpc.github.io/grpc/core/md_doc_statuscodes.html
+      if (status) { // only returns a status when there's error. Otherwise it just waits
+        resolve('No connection established. Server is not responding..')
       } else {
-        console.log(`Health check status: ${response.status} Server Connected`);
-        connectionStatus = true
       }
+    });
+
+    checkConnectionHealth()
+    proceedWithGrpcOperations().then((res) => {
+      resolve(res)
     })
 
-    // the issue is the connection status was made true somewhere here hence the error 
+    /* Check the health to see if the other side will give back any. If they do give back health report status, it will resolve true, and then
+    proceed with following GRPC operations. And if grpc operations emits connection error, than it will resolve the error, and then the outler
+    layer of the promise will also resolve, prompting the manageConnection  function to destroy this GRPC instance upon the resolve, and then
+    creating a new one in the next second. */
 
-    if (connectionStatus = true) {
-      proceedWithGrpcOperations().then((res) => {
-        resolve(res)
+    // Check connection To be Update. This function is destroying my code flow
+    async function checkConnectionHealth(): Promise<boolean> {
+      return new Promise((resolve, reject) => {
+        client.Check({}, (error, response) => {
+          if (response) {
+            console.log(`Health check status: ${response.status} Server Connected`);
+            let report: ReportStatus = {
+              code: ColorCode.GREEN,
+              message: `Good to go!!!`
+            }
+            resolve(true)
+            statusControl.next(report)
+          } else {
+            console.error(`Health check failed: ${error}`);
+          }
+        })
       })
-    } else {
-      resolve(`Connection status is ${connectionStatus}`)
     }
 
     // All the grpc operations are here
     async function proceedWithGrpcOperations(): Promise<any> {
       return new Promise((resolve, reject) => {
+
         // Subscribe to the RxJS subject to send data to the server
-        subscription = notificationSubject.subscribe((data: any) => {
+        subscription = messageToBeTransmitted.subscribe((data: any) => {
           if (!unsubscribed) {
             let message: string = JSON.stringify(data)
             console.log(`Sending Data to Server: ${data.appData?.msgId}`);
-            statusControl.next(data)
             // Note: The parameter here MUST BE STRICTLY be the same letter as defined in proto. Eg: message MessageRequest { string >>'message'<< = 1 }
             call.write({ message });
           }
@@ -71,23 +81,18 @@ async function connectServer(server): Promise<string> {
         call.on('data', (data: any) => {
           // console.log(data)
           let message = JSON.parse(data.message)
-          statusControl.next(message)
-          console.log(`Received data from Server: ${message.msgId ?? `Invalid`}`);
-          // errorHandlingService.displayTable()
+          console.log(`Received acknowledgement from Server: ${message.msgId ?? `Invalid`}`);
         });
 
         call.on('error', (err) => {
-          errorSubject.next(err);
           resolve(err)
         });
 
         call.on('end', () => {
-          console.log('Server stream ended');
           if (!unsubscribed && subscription) { // kill subcription to prevent memory leaks
             subscription.unsubscribe();
             unsubscribed = true;
           }
-          errorSubject.next('Server Disconnected or destroyed by server') // Based on the assumptions that the server should not be dead
           resolve('Server Error');
         });
       })
@@ -107,11 +112,23 @@ async function manageConnection() {
       consecutiveResolutions++;
       console.log(`Reconnection Attempt: ${consecutiveResolutions}`)
 
-      // If there are 60 consecutive resolutions, log an error and break the loop
-      if (consecutiveResolutions >= 60) {
-        console.error('Connection failed 10 times. Stopping connection attempts.');
 
-        break;
+      // If there are 60 consecutive resolutions, log an error and break the loop
+      if (consecutiveResolutions >= 5) {
+        console.error('Connection failed 60 times. Stopping connection attempts.');
+        let error: ReportStatus = {
+          code: ColorCode.RED,
+          message: 'Initiate Doomsday protocol....'
+        }
+        statusControl.next(error)
+        // break;
+      } else {
+        let error: ReportStatus = {
+          code: ColorCode.YELLOW,
+          // message: `Reconnection Attempt: ${consecutiveResolutions}. Server has yet to respond`
+          message: `Attempting reconnection... Server has yet to respond`
+        }
+        statusControl.next(error);
       }
     } catch (error) {
       // Connection did not resolve, reset the count
@@ -136,7 +153,7 @@ async function manageConnection() {
 // this is just to publish an array of fake data as a Subject
 function stream(): Subject<any> {
   let result: Subject<any> = new Subject()
-  let messages = parsedMessages
+  let messages: any[] = parsedMessages
   let count = 0
   const intervalId = setInterval(() => {
     result.next(messages[count]);
@@ -146,17 +163,9 @@ function stream(): Subject<any> {
       result.complete();
     }
   }, 1000)
+
   return result
 }
-
-let messageStream: Subject<any> = stream()
-messageStream.subscribe({
-  next: (message: any) => {
-    notificationSubject.next(message)
-  },
-  error: (err) => console.error(err),
-  complete: () => { }
-})
 
 // Example usage
 manageConnection().catch(error => {

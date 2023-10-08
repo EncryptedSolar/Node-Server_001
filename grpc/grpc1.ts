@@ -63,3 +63,43 @@ As for the error message trigger, it seems that on the server side, if the error
 that call.emit('error'), it will cease it's own operation. Further investigation is to be conducted
 to understand the operatives of grpc
 */
+
+
+
+
+
+/* 
+From git hub
+const grpc = require('@grpc/grpc-js');
+const { service } = require('../health');
+
+const server = new grpc.Server();
+
+function startGrpcServer(host, healthImpl) {
+  server.addService(service, healthImpl);
+  return new Promise((resolve, reject) => {
+    server.bindAsync(host, grpc.ServerCredentials.createInsecure(), (error, port) => {
+      if (error) {
+        console.log('grpc binding error', error);
+        reject();
+      }
+
+      server.start();
+      // console.log(`Running on port ${port}`);
+      resolve();
+    });
+  });
+}
+
+function stopGrpcServer() {
+  server.tryShutdown(error => {
+    // do nothing
+  });
+}
+
+module.exports = {
+  startGrpcServer,
+  stopGrpcServer,
+};
+
+*/
