@@ -6,7 +6,7 @@ export enum ColorCode {
 
 export interface messageTransmissionInterface {
     id?: string,
-    state: '' | 'attempt to send' | 'failed sent' | 'success sent',
+    state: '' | 'attempt to send' | 'failed sent' | 'sent successfully',
     date?: Date,
     msg: string
 }

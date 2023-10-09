@@ -13,7 +13,21 @@ service Message {
 
   rpc sendMessage (MessageRequest) returns (MessageResponse) {}
 
+  rpc HandleMessage (Request) returns (stream Response) {}
+
+  rpc streamMessage (stream MessageRequest) returns (MessageResponse) {}
+
   rpc sendMessageStream (stream MessageRequest) returns (stream MessageResponse) {}
+}
+
+message Request { 
+    string id =1;
+    string message = 2;
+}
+
+message Response { 
+    string id = 1;
+    string message = 2;
 }
 
 message MessageRequest {

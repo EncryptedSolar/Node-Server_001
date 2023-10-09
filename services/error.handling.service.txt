@@ -4,6 +4,8 @@ import mongoose, { Model, Schema } from 'mongoose';
 import { Observable, Subject, Subscription, from } from 'rxjs'
 import { ColorCode, MessageLog, ReportStatus } from '../interfaces/general.interface'
 require('dotenv').config();
+
+// Implement status chain refactoring
 export class ErrorHandlingService {
     private mongoUrl: string = process.env.MONGO + 'emergencyStorage'
     private bufferedStorage: MessageLog[] = []
@@ -27,7 +29,7 @@ export class ErrorHandlingService {
         statusReport.subscribe((report: any) => {
             if (report?.code == ColorCode.GREEN) {
                 this.connectionStatus = true
-                console.log(`Connection status report: ${this.connectionStatus} && ${report.message ?? report.errorMsg ?? 'No Message'}`)
+                console.log(`Connection status report: ${this.connectionStatus} && ${report.message ?? 'No Message'}`)
                 messageStreamToMongo = this.deactivateMongoStreamSubscription(messageStreamToMongo)
                 this.releaseMessageFromLocalBuffer(this.bufferedStorage).then((resObs: Observable<MessageLog>) => {
                     resObs.subscribe({
@@ -50,7 +52,7 @@ export class ErrorHandlingService {
             }
             if (report?.code == ColorCode.YELLOW) {
                 this.connectionStatus = false
-                console.log(`Connection status report: ${this.connectionStatus} && ${report.message ?? report.errorMsg ?? 'No Message'}`)
+                console.log(`Connection status report: ${this.connectionStatus} && ${report.message ?? 'No Message'}`)
                 messageReleaseSubscription = this.deactivateReleaseSubscription(messageReleaseSubscription)
                 messageBufferSubscription = this.activateBufferSubscription(this.bufferedStorage, messageBufferSubscription, messageToBePublished)
             }
@@ -81,7 +83,7 @@ export class ErrorHandlingService {
             });
             console.log(`Subscription message release activated.`);
         } else {
-            console.log(`Subscription message release  is already active.`);
+            console.log(`Subscription message release is already active.`);
         }
         return messageReleaseSubscription
     }
@@ -139,9 +141,9 @@ export class ErrorHandlingService {
                 error: (err) => console.error(err),
                 complete: () => { },
             });
-            console.log(`Subscription message mongo stream activated.`);
+            console.log(`Subscription message streaming to Mongo activated.`);
         } else {
-            console.log(`Subscription message mongo stream  is already active.`);
+            console.log(`Subscription message streaming to Mongo  is already active.`);
         }
         return messageStreamToMongo
     }
@@ -151,9 +153,9 @@ export class ErrorHandlingService {
         if (messageStreamToMongo) {
             messageStreamToMongo.unsubscribe();
             messageStreamToMongo = null;
-            console.log(`Subscription message mongo stream deactivated.`);
+            console.log(`Subscription message streaming to Mongo deactivated.`);
         } else {
-            console.log(`Subscription message mongo stream is already deactivated.`);
+            console.log(`Subscription message streaming to Mongo is already deactivated.`);
         }
         return messageStreamToMongo
     }

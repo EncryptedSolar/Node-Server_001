@@ -1,58 +1,25 @@
-import * as grpc from '@grpc/grpc-js';
-import { Subject } from 'rxjs';
-const message_proto = require('./protos/server.proto')
+import { GrpcService } from "../services/grpc.service";
 
-// const message_proto = require('./protos/server.proto')
-const server = new grpc.Server();
-const errorSubject: Subject<any> = new Subject()
+const gprcService: GrpcService = new GrpcService()
 
-// Add the streamingData function to the gRPC service
-// Define your message_proto.Message service methods
-server.addService(message_proto.Message.service, {
-    sendMessageStream: (call) => {
-        call.on('data', (data: any) => {
-            // console.log(data) // it does return in string format
-            let payload = JSON.parse(data.message)
-            console.log(`Received Message from Client: ${payload.appData?.msgId}`);
-            // Forward the received message to the RxJS subject
-            let respmsg: any = {
-                msgId: payload.appData?.msgId,
-                confirmationMessage: `Message ${payload.appData?.msgId} acknowledged!`
-            }
-            let message: string = JSON.stringify(respmsg)
-            console.log(`Responding to client: ${respmsg.msgId}`);
-            // Note: The parameter here MUST BE STRICTLY be the same letter as defined in proto. Eg: message MessageRequest { string >>'message'<< = 1 }
-            call.write({ message });
-        });
+let server1 = 'localhost:3000'
+let server2 = 'localhost:3001'
 
-        call.on('end', () => {
-            console.log('Client stream ended');
-        });
+gprcService.createGrpcServer(server1)
+gprcService.createGrpcServer(server2)
 
-        call.on('error', (err) => {
-            errorSubject.next(err.message);
-        });
 
-        errorSubject.subscribe(info => {
-            console.log(info)
-            // call.emit('error', info)
-        });
-    },
+setTimeout(() => {
+  gprcService.stopServer(server1).then((res) => {
+    gprcService.getAllGrpcServerConnectionInstance()
+  })
+}, 3000)
 
-    Check: (_, callback) => {
-        // health check logic here
-        // for now it is just sending the status message over to tell the client it is alive
-        // For simplicity, always return "SERVING" as status
-        callback(null, { status: 'SERVING' });
-    },
-});
-
-// Bind and start the server
-server.bindAsync('0.0.0.0:3001', grpc.ServerCredentials.createInsecure(), () => {
-    console.log('gRPC server is running on port 3001');
-    server.start();
-});
-
+setTimeout(() => {
+  gprcService.createGrpcServer(server1).then((res) => {
+    gprcService.getAllGrpcServerConnectionInstance()
+  })
+}, 10000)
 
 /* Behaviour
 When server is disconnected, the client will still send regardless of whether server is alive. 
@@ -62,44 +29,4 @@ the client would not automatically attempt to reconnect.
 As for the error message trigger, it seems that on the server side, if the error is triggered, in
 that call.emit('error'), it will cease it's own operation. Further investigation is to be conducted
 to understand the operatives of grpc
-*/
-
-
-
-
-
-/* 
-From git hub
-const grpc = require('@grpc/grpc-js');
-const { service } = require('../health');
-
-const server = new grpc.Server();
-
-function startGrpcServer(host, healthImpl) {
-  server.addService(service, healthImpl);
-  return new Promise((resolve, reject) => {
-    server.bindAsync(host, grpc.ServerCredentials.createInsecure(), (error, port) => {
-      if (error) {
-        console.log('grpc binding error', error);
-        reject();
-      }
-
-      server.start();
-      // console.log(`Running on port ${port}`);
-      resolve();
-    });
-  });
-}
-
-function stopGrpcServer() {
-  server.tryShutdown(error => {
-    // do nothing
-  });
-}
-
-module.exports = {
-  startGrpcServer,
-  stopGrpcServer,
-};
-
 */
