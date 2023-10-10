@@ -1,3 +1,6 @@
+/* General interface used for office work/ */
+
+
 export enum ColorCode {
     'GREEN' = 'GREEN',
     "YELLOW" = "YELLOW",
@@ -10,7 +13,7 @@ export interface messageTransmissionInterface {
     date?: Date,
     msg: string
 }
-export interface MessageLog {
+export interface MessageLog { // this one specifically for office work case only. FIS copyright LOL
     appLogLocId: string,
     appData: {
         msgId: string,
@@ -28,4 +31,9 @@ export interface ServerResponse {
 export interface ReportStatus {
     code: ColorCode
     message: string
+}
+// https://grpc.io/docs/what-is-grpc/core-concepts/
+export interface GrpcConnectionType {
+    instanceType: '' | 'server' | 'client'
+    serviceMethod: '' | 'unary' | 'server streaming' | 'client streaming' | 'bidirectional'
 }

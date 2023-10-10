@@ -52,9 +52,9 @@ export function createMessage(): any {
 
 
 
-Array.from({ length: 1000 }).forEach(() => {
+Array.from({ length: 100 }).forEach(() => {
   GigaPayload.push(createMessage());
 });
 
 
-fs.writeFileSync('payload.json', JSON.stringify(GigaPayload))
+fs.writeFileSync('payload2.json', JSON.stringify(GigaPayload))

@@ -1,0 +1,454 @@
+import * as grpc from '@grpc/grpc-js';
+import { Subject, Subscription } from 'rxjs';
+import { ColorCode, GrpcConnectionType, MessageLog, ReportStatus } from '../interfaces/general.interface';
+import { Status } from '@grpc/grpc-js/build/src/constants';
+const message_proto = require('./protos/server.proto')
+
+export class GrpcService {
+    private grpcServerConnection: any = {}
+
+    constructor() { }
+
+    // Emergency for demonstration
+    public async createGrpcServer(serverUrl: string): Promise<any> { // '0.0.0.0:3001'
+        return new Promise((resolve, reject) => {
+            let server = new grpc.Server();
+
+            // Add the streamingData function to the gRPC service
+            // Define your message_proto.Message service methods
+            server.addService(message_proto.Message.service, {
+                sendMessageStream: (call) => { // this is for bidirectional streaming. Need to have another one for unary calls for web clients
+                    call.on('data', (data: any) => {
+                        // console.log(data) // it does return in string format
+                        let payload = JSON.parse(data.message)
+                        console.log(`Received Message from Client: ${payload.appData?.msgId}`);
+                        // Forward the received message to the RxJS subject
+                        let respmsg: any = {
+                            msgId: payload.appData?.msgId,
+                            confirmationMessage: `Message ${payload.appData?.msgId} acknowledged!`
+                        }
+                        let message: string = JSON.stringify(respmsg)
+                        console.log(`Responding to client: ${respmsg.msgId}`);
+                        // Note: The parameter here MUST BE STRICTLY be the same letter as defined in proto. Eg: message MessageRequest { string >>'message'<< = 1 }
+                        let result = call.write({ message });
+
+                        console.log(JSON.stringify(call, null, 2));
+                        console.log(JSON.stringify(result, null, 2));
+                    });
+
+                    call.on('end', () => {
+                        console.log('Client stream ended');
+                    });
+
+                    call.on('error', (err) => {
+
+                    });
+
+                },
+
+                Check: (_, callback) => {
+                    // health check logic here
+                    // for now it is just sending the status message over to tell the client it is alive
+                    // For simplicity, always return "SERVING" as status
+                    callback(null, { status: 'SERVING' });
+                },
+            });
+
+            // Bind and start the server
+            server.bindAsync(serverUrl, grpc.ServerCredentials.createInsecure(), () => {
+                console.log(`gRPC server is running on ${serverUrl}`);
+                server.start();
+            });
+            this.grpcServerConnection[serverUrl] = server
+            resolve(server)
+        })
+    }
+
+    public getAllGrpcServerConnectionInstance(): any {
+        console.log(this.grpcServerConnection)
+        return this.grpcServerConnection
+    }
+
+    public async stopServer(serverUrl: string): Promise<any> {
+        return new Promise((resolve, reject) => {
+            if (this.grpcServerConnection[serverUrl]) {
+                console.log(`Shutting down the gRPC server:${serverUrl} ...`);
+                // this.grpcServerConnection[serverUrl].tryShutdown(() => {
+                //     console.log(`Server ${serverUrl} has been gracefully stopped.`);
+                //     resolve('')
+                // })
+                resolve(this.grpcServerConnection[serverUrl].forceShutdown())
+                console.log(`Server ${serverUrl} is forced to shut down!`)
+                // simply removing the reference to the GrpcService instance associated with the specific serverUrl from the grpcServerConnection object.
+                // However, the gRPC server instance itself continues to run as long as it has not been explicitly shut down using methods like tryShutdown.
+                console.log(`Deleting grpc connection instance:${serverUrl} .....`)
+                delete this.grpcServerConnection[serverUrl];
+            } else {
+                console.log(`Server${serverUrl} is not running.`);
+                reject()
+            }
+        })
+    }
+
+    // To be migrated into a service in the immediate future
+    public async createConnection(serverUrl: string, messageToBeTransmitted: Subject<any>, statusControl: Subject<ReportStatus>, connectionType: GrpcConnectionType) {
+        // let messageToBeTransmitted: Subject<any> = messages
+        // let statusControl: Subject<ReportStatus> = reportStatus
+        let consecutiveResolutions = 0;
+        let lastResolutionTime = Date.now();
+        let alreadyHealthCheck: boolean = false
+        let yellowErrorEmission: boolean = false
+        let redErrorEmission: boolean = false
+
+        while (true) {
+            try {
+                await this.createGrpcBidirectionalClientIntance(serverUrl, alreadyHealthCheck, messageToBeTransmitted, statusControl)
+                // if (connectionType.instanceType == 'server' && connectionType.serviceMethod == 'bidirectional') {
+                //     await this.createGrpcBidirectionalServerInstance(serverUrl, messageToBeTransmitted, statusControl);
+                // }
+                // if (connectionType.instanceType == 'server' && connectionType.serviceMethod == 'server streaming') {
+                //     await this.createGrpcServerStreamingServerInstance(serverUrl, messageToBeTransmitted);
+                // }
+                // if (connectionType.instanceType == 'client' && connectionType.serviceMethod == 'bidirectional') {
+                //     await this.createGrpcBidirectionalClientIntance(serverUrl, alreadyHealthCheck, messageToBeTransmitted, statusControl);
+                // }
+                // if (connectionType.instanceType == 'client' && connectionType.serviceMethod == 'server streaming') {
+                //     await this.createGrpcServerStreamingClientInstance(serverUrl, alreadyHealthCheck, messageToBeTransmitted, statusControl);
+                // }
+
+                // If connection resolves (indicating failure), increment the count
+                consecutiveResolutions++;
+                console.log(`Reconnection Attempt: ${consecutiveResolutions}`)
+                alreadyHealthCheck = true
+
+
+                // If there are ?? consecutive resolutions, log an error and break the loop
+                if (consecutiveResolutions >= parseInt(process.env.ReconnectionAttempt as string) && redErrorEmission == false) {
+                    redErrorEmission = true
+                    console.error(`Connection failed ${consecutiveResolutions} times. Initiating local storage mechanism.`);
+                    let error: ReportStatus = {
+                        code: ColorCode.RED,
+                        message: 'Initiate Doomsday protocol....'
+                    }
+                    statusControl.next(error)
+                }
+                if (consecutiveResolutions < 5 && yellowErrorEmission == false) {
+                    yellowErrorEmission = true
+                    let error: ReportStatus = {
+                        code: ColorCode.YELLOW,
+                        // message: `Reconnection Attempt: ${consecutiveResolutions}. Server has yet to respond`
+                        message: `Attempting reconnection... Server has yet to respond`
+                    }
+                    statusControl.next(error);
+                }
+            } catch (error) {
+                // Connection did not resolve, reset the count
+                consecutiveResolutions = 0;
+                console.error('Connection attempt failed:', error);
+            }
+
+            // Check for a pause of more than 3 seconds since the last resolution attempt
+            const currentTime = Date.now();
+            const timeSinceLastResolution = currentTime - lastResolutionTime;
+            if (timeSinceLastResolution > 3000) {
+                consecutiveResolutions = 0;
+                yellowErrorEmission = false
+                redErrorEmission = false
+                alreadyHealthCheck = false
+            }
+
+            // Update the last resolution time
+            lastResolutionTime = currentTime;
+
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second before the next attempt
+            // timeout generate message to trigger this reconnection
+        }
+    }
+
+    private async createGrpcServerStreamingServerInstance(serverUrl: string, messageToBeStreamed?: Subject<any>, statusControl?: Subject<ReportStatus>): Promise<any> {
+        return new Promise((resolve, reject) => {
+            let server = new grpc.Server();
+            server.addService(message_proto.Message.service, {
+                HandleMessage: (call) => {
+                    const request = call.request
+                    // console.log(request) // this is just to verify actual request from the client
+                    // Subscribe to the observable and send responses to the client
+                    messageToBeStreamed?.subscribe((response) => {
+                        let payload = JSON.stringify(response)
+                        let message = {
+                            id: 'randomlyAssigned',
+                            message: payload
+                        }
+                        console.log(`Streaming ${response?.appData?.msgId}...`)
+                        call.write(message);
+                    });
+
+                    // Handle client cancellation
+                    call.on('cancelled', () => {
+                        messageToBeStreamed?.unsubscribe();
+                        call.end();
+                    });
+                },
+
+                Check: (_, callback) => {
+                    callback(null, { status: 'SERVING' });
+                },
+
+            })
+            // Bind and start the server
+            server.bindAsync(serverUrl, grpc.ServerCredentials.createInsecure(), () => {
+                console.log(`gRPC server is running on ${serverUrl}`);
+                server.start();
+            });
+            this.grpcServerConnection[serverUrl] = server
+            resolve(server)
+        })
+    }
+
+
+    private async createGrpcBidirectionalServerInstance(serverUrl: string, messageToBeStream: Subject<any>, statusControl: Subject<ReportStatus>): Promise<any> { // '0.0.0.0:3001'
+        return new Promise((resolve, reject) => {
+            let messageLength = 0
+            let clientStatusConnectionCheckGreenCase: boolean = false
+            let clientStatusConnectionCheckYellowCase: boolean = false
+            let server = new grpc.Server();
+            let connectedClients = new Set()
+            messageToBeStream.subscribe({
+                next: () => {
+                    if (connectedClients.size > 0 && clientStatusConnectionCheckGreenCase == false) {
+                        messageLength = 0
+                        clientStatusConnectionCheckGreenCase = true
+                        clientStatusConnectionCheckYellowCase = false // reset yellow
+                        let reportStatus: ReportStatus = {
+                            code: ColorCode.GREEN,
+                            message: `SomeBody is there to receive the messages`
+                        }
+                        statusControl.next(reportStatus)
+                    }
+                    if (connectedClients.size === 0 && clientStatusConnectionCheckYellowCase == false) {
+                        console.log(`at Grpc service: ${messageLength} messages to be buffered`)
+                        messageLength++
+                        clientStatusConnectionCheckYellowCase = true
+                        clientStatusConnectionCheckGreenCase = false // reset green
+                        // console.log('No clients connected');
+                        let reportStatus: ReportStatus = {
+                            code: ColorCode.YELLOW,
+                            message: `No Clients connected`
+                        }
+                        statusControl.next(reportStatus)
+                    }
+                    if (messageLength => parseInt(process.env.MaxMessageLoad as string)) {
+                        messageLength = 0
+                        let reportStatus = {
+                            code: ColorCode.RED,
+                            message: `Server would not respond for a period of time...Intiating local storage to store Incoming Messages`
+                        }
+                        statusControl.next(reportStatus)
+                    }
+                }
+            })
+
+            // Add the streamingData function to the gRPC service
+            // Define your message_proto.Message service methods
+            server.addService(message_proto.Message.service, {
+                sendMessageStream: (call) => { // this is for bidirectional streaming. Need to have another one for unary calls for web clients
+                    connectedClients.add(call);
+
+                    messageToBeStream.subscribe({
+                        next: (payload: any) => {
+                            let message: string = JSON.stringify(payload)
+                            call.write({ message })
+                        },
+                        error: err => console.error(err),
+                        complete: () => { } //it will never complete
+                    })
+
+                    // Current dilemma there's no way to tell if the client is alive. I need to be wrting my own mechanics to detect the client's status
+
+                    call.on('data', (data: any) => {
+                        // console.log(data) // it does return in string format
+                        let payload = JSON.parse(data.message)
+                        console.log(`Received Message from Client: ${payload.appData?.msgId}`);
+                        // Forward the received message to the RxJS subject
+                        let respmsg: any = {
+                            msgId: payload.appData?.msgId,
+                            confirmationMessage: `Message ${payload.appData?.msgId} acknowledged!`
+                        }
+                        let message: string = JSON.stringify(respmsg)
+                        console.log(`Responding to client: ${respmsg.msgId}`);
+                        // Note: The parameter here MUST BE STRICTLY be the same letter as defined in proto. Eg: message MessageRequest { string >>'message'<< = 1 }
+                        call.write({ message });
+                    });
+
+                    call.on('end', () => {
+                        console.log('Client stream ended');
+                        connectedClients.delete(call); // remove the clients in the Set The problem is here, it will only delete when the stream ends
+                        // but the stream never ends. THis is not a reliable way to tell if a client is disconnected
+                    });
+
+                    call.on('error', (err) => {
+                    });
+
+                    call.on('close', () => {
+                        console.log('Unknown cause for diconnectivity');
+                        connectedClients.delete(call);
+                        // Handle client closure, which may be due to errors or manual termination
+                    });
+                },
+
+                Check: (_, callback) => {
+                    // health check logic here
+                    // for now it is just sending the status message over to tell the client it is alive
+                    // For simplicity, always return "SERVING" as status
+                    callback(null, { status: 'SERVING' });
+                },
+            });
+
+            // Bind and start the server
+            server.bindAsync(serverUrl, grpc.ServerCredentials.createInsecure(), () => {
+                console.log(`gRPC server is running on ${serverUrl}`);
+                server.start();
+            });
+            this.grpcServerConnection[serverUrl] = server
+        })
+    }
+
+
+    private async createGrpcServerStreamingClientInstance(server: string, alreadyHealthCheck: boolean, unaryRequest: Subject<any>, statusControl: Subject<ReportStatus>): Promise<any> {
+        return new Promise((resolve, reject) => {
+            const client = new message_proto.Message(server, grpc.credentials.createInsecure())
+            this.checkConnectionHealth(client, statusControl, alreadyHealthCheck)
+
+            let subscription: Subscription = unaryRequest.subscribe({
+                next: request => {
+                    let payload = JSON.stringify(request)
+                    let message = {
+                        id: 'noIdForNow',
+                        message: payload
+                    }
+                    const call = client.HandleMessage(message)
+
+                    call.on('data', (response) => {
+                        let message: any = JSON.parse(response.message) // all these message types interface are subject to change in the future
+                        // console.log(`Received response: ${message.appData.msgId}`);
+                        console.log(`Received ${message.appData.msgId}`)
+                    });
+
+                    call.on('end', () => {
+                        console.log('Streaming ended')
+                        resolve('Server stream ended')
+                        subscription.unsubscribe()
+                    });
+
+                    call.on('error', (err) => {
+                        console.error('Error:', err);
+                        resolve('Server stream Error')
+                    });
+
+                    call.on('status', (status) => {
+                        console.log('Status:', status);
+                        // console.log(status) // For more info: https://grpc.github.io/grpc/core/md_doc_statuscodes.html
+                        // https://grpc.io/docs/what-is-grpc/core-concepts/#streaming
+                        if (status) { // only returns a status when there's error. Otherwise it just waits
+                            if (status.code === grpc.status.OK) {
+                                console.log(`Unary Request sent successfully!`)
+                                // RPC completed successfully
+                            }
+                            if (status.code === grpc.status.UNKNOWN) {
+                                console.log(`Unknown Error!`)
+                            }
+                            if (status.code === grpc.status.UNAVAILABLE) {
+                                console.log('No connection Available')
+                                resolve('No connection established. Server is not responding..') // recreat this connection instance
+                            }
+                        }
+                    });
+                },
+                error: err => {
+                    console.error(err)
+                    resolve(err)
+                },
+                complete: () => {
+                    resolve('Some how this unary Stream is ended. In need of a new instance....')
+                    subscription.unsubscribe()
+                }
+            })
+
+        })
+    }
+
+    // Create a bidirectional streaming call
+    private async createGrpcBidirectionalClientIntance(server: string, alreadyHealthCheck: boolean, messageToBeTransmitted: Subject<MessageLog>, statusControl: Subject<ReportStatus>): Promise<string> {
+        let subscription: any
+        let unsubscribed: boolean = false
+
+        return new Promise(async (resolve, reject) => {
+            const client = new message_proto.Message(server, grpc.credentials.createInsecure());
+            const call = client.sendMessageStream();
+
+            call.on('status', (status: Status) => {
+                if (status) {
+                    resolve('No connection established. Server is not responding..')
+                    // unsubscribed = true;
+                    // subscription.unsubscribe()
+                } // only returns a status when there's error. Otherwise it just waits
+            });
+
+            await this.checkConnectionHealth(client, statusControl, alreadyHealthCheck)
+
+            // All the grpc operations are here
+            // Subscribe to the RxJS subject to send data to the server
+            subscription = messageToBeTransmitted.subscribe((data: MessageLog) => {
+                if (!unsubscribed) {
+                    let message: string = JSON.stringify(data)
+                    console.log(`Sending Data to Server: ${data.appData?.msgId}`);
+                    // Note: The parameter here MUST BE STRICTLY be the same letter as defined in proto. Eg: message MessageRequest { string >>'message'<< = 1 }
+                    call.write({ message });
+                }
+            });
+
+            call.on('data', (data: any) => {
+                // console.log(data)
+                let message = JSON.parse(data.message)
+                console.log(`Received acknowledgement from Server: ${message.appData.msgId ?? `Invalid`}`);
+            });
+
+            call.on('error', (err) => {
+                resolve(err)
+            });
+
+            call.on('end', () => {
+                if (!unsubscribed && subscription) { // kill subcription to prevent memory leaks
+                    subscription.unsubscribe();
+                    unsubscribed = true;
+                }
+                resolve('Server Error');
+            });
+
+        })
+    }
+
+    private async checkConnectionHealth(client: any, statusControl: Subject<ReportStatus>, alreadyHealthCheck): Promise<boolean> {
+        return new Promise((resolve, reject) => {
+            client.Check({}, (error, response) => {
+                if (response) {
+                    console.log(`GRPC Health check status: ${response.status} Server Connected`);
+                    let report: ReportStatus = {
+                        code: ColorCode.GREEN,
+                        message: `Good to go!!!`
+                    }
+                    resolve(true)
+                    statusControl.next(report)
+                } else {
+                    if (alreadyHealthCheck == false) console.error(`Health check failed: ${error}`);
+                }
+            })
+        })
+    }
+
+
+}
+
+
+
+

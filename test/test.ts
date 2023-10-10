@@ -39,3 +39,56 @@
 //     console.log(final)
 //     return final
 // }
+
+class EventEmitter {
+    private events = {};
+
+    // Register a callback for an event
+    on(event, callback) {
+        if (!this.events[event]) {
+            this.events[event] = []; // registering the name of the event. Eg: login logout
+        }
+        this.events[event].push(callback); // registering the callabck. Not executing them immediately but rather waiting for the evnet ot happen
+    }
+
+    // Emit an event and execute its callbacks
+    emit(event, data) {
+        const listeners = this.events[event];
+        if (listeners) {
+            for (const listener of listeners) {
+                listener(data);
+            }
+        }
+    }
+}
+
+const emitter = new EventEmitter();
+
+// Define a callback function for the 'Testing' event
+function login(args: any) {
+    console.log(`Logging in with ${args}`);
+}
+function logout(args: any) {
+    console.log(`Logging out with ${args}`);
+}
+
+// Register the 'login' callback for the 'Testing' event
+emitter.on('login', login);
+emitter.on('logout', logout);
+emitter.emit('login', 'Jane');
+emitter.emit('logout', `John`);
+
+// sample callbacks
+// const personObject = {
+//     eatApple: (appleObject) => {
+//         appleObject.peelApple()
+//         console.log(`eat Apple`)
+//     }
+// }
+// const appleObject = {
+//     peelApple: () => {
+//         console.log(`Peel Apple`)
+//     }
+// }
+
+// personObject.eatApple(appleObject)

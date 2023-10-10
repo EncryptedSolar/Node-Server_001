@@ -12,7 +12,6 @@ export class ErrorHandlingService {
     private connectionStatus: boolean = true
     private mongoConnection: any
     private messageModel: any
-    private storageOptions: string = process.env.Storage as string
 
     constructor() {
         this.manageMongoConnection()

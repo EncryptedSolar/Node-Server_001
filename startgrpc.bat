@@ -1,4 +1,7 @@
+
 @echo off
-start cmd /k npm run grpc1
-start cmd /k npm run grpc2
-REM Add more npm run commands as needed for additional servers
+start wt -M -d "D:\Programming\nodeServer" cmd /k "npm run grpc1" ; split-pane -d "D:\Programming\nodeServer" cmd /k "npm run grpc2" ; split-pane -d "D:\Programming\nodeServer" cmd /k "npm run grpc2"
+
+
+//wt -p "Command Prompt" ; split-pane -p "Windows PowerShell" ; split-pane -H 
+

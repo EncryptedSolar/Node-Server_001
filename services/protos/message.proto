@@ -21,7 +21,7 @@ service Message {
 }
 
 message Request { 
-    string id =1;
+    string id = 1;
     string message = 2;
 }
 
