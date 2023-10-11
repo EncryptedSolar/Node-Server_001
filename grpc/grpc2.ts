@@ -15,13 +15,12 @@ let dataMessages = stream() // Emulate messges to be sent over to target server
 let server1: string = 'localhost:3000'
 let unaryRequestSubject: Subject<any> = new Subject()
 
-errorHandlingService.handleMessage(messageToBeReleased, statusControl).subscribe((messages) => {
+errorHandlingService.handleMessage(unaryRequestSubject, statusControl).subscribe((messages) => {
   messageToBeReleased.next(messages)
 })
 
-// grpcService.createGrpcClient(server1, statusControl, messageToBeReleased, { instanceType: 'client', serviceMethod: 'server streaming' })
-grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'bidirectional' })
-// grpcService.manageConnection(server1, messageToBeReleased, statusControl)
+grpcService.createGrpcInstance(server1, unaryRequestSubject, statusControl, { instanceType: 'client', serviceMethod: 'server streaming' })
+// grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'bidirectional' })
 
 let testMessageRequest = {
   appLogLocId: "68ca0bae-2acd-44f2-b54c-836d6af92890",
@@ -39,8 +38,8 @@ let testMessageRequest = {
 }
 
 setTimeout(() => {
-  // unaryRequestSubject.next(testMessageRequest)
-}, 500)
+  unaryRequestSubject.next(testMessageRequest)
+}, 2000)
 // Create a bidirectional streaming call
 
 // this is just to publish an array of fake data as a Subject

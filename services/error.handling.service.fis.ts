@@ -48,6 +48,7 @@ export class FisErrorHandlingService {
                     })
                 }).catch((err) => console.error(err))
                 messageReleaseSubscription = this.activateReleaseSubscription(messageReleaseSubscription, messageToBePublished, releaseMessageSubject)
+                messageBufferSubscription = this.deactivateBufferSubscription(messageBufferSubscription)
             }
             if (report.code == ColorCode.YELLOW) {
                 this.connectionStatus = false

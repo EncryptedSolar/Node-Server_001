@@ -19,8 +19,8 @@ errorHandlingService.handleMessage(dataMessages, statusControl).subscribe((messa
 let server1 = 'localhost:3000'
 let server2 = 'localhost:3001'
 
-gprcService.createGrpcInstance(server1, dataMessages, statusControl, { instanceType: 'server', serviceMethod: 'bidirectional'})
-// gprcService.createConnection(server1, dataMessages, statusControl, { instanceType: 'server', serviceMethod: 'bidirectional' })
+// gprcService.createGrpcInstance(server1, messageToBePublished, statusControl, { instanceType: 'server', serviceMethod: 'bidirectional'})
+gprcService.createGrpcInstance(server1, dataMessages, statusControl, { instanceType: 'server', serviceMethod: 'server streaming' })
 
 
 // setTimeout(() => {
