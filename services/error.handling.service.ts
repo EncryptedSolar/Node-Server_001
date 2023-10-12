@@ -1,6 +1,4 @@
 import * as _ from 'lodash'
-import * as fs from 'fs'
-import mongoose, { Model, Schema } from 'mongoose';
 import { Observable, Subject, Subscription, from } from 'rxjs'
 import { ColorCode, MessageLog, ReportStatus } from '../interfaces/general.interface'
 import { MongoConnectionService } from './mongo.service';
@@ -11,6 +9,7 @@ export class ErrorHandlingService {
     private bufferedStorage: MessageLog[] = []
     private database: string = `emergencyStorage`
     private mongoUrl: string = process.env.MONGO as string
+    private maximumBufferLength: number = parseInt(process.env.MaxBufferLoad as string) // right now just put as 15
 
     constructor(private mongoService: MongoConnectionService) {
         mongoService.manageMongoConnection(this.database, this.mongoUrl)
@@ -22,6 +21,7 @@ export class ErrorHandlingService {
         let messageReleaseSubscription: Subscription | null = null; // Initialize as null
         let messageBufferSubscription: Subscription | null = null
         let messageStreamToMongo: Subscription | null = null
+        this.checkBufferLimit(messageToBePublished, statusReport)
         statusReport.subscribe((report: any) => {
             if (report.code == ColorCode.GREEN) {
                 console.log(`Connection status report: ${report.message ?? 'No Message'}`)
@@ -47,6 +47,10 @@ export class ErrorHandlingService {
                 messageBufferSubscription = this.deactivateBufferSubscription(messageBufferSubscription)
             }
             if (report.code == ColorCode.YELLOW) {
+                if (report.payload) {
+                    console.log(`Rebuffering ${report.payload.appData?.msgId} into buffer...`)
+                    this.bufferedStorage.push(report.payload)
+                }
                 console.log(`Connection status report: ${report.message ?? 'No Message'}`)
                 messageBufferSubscription = this.activateBufferSubscription(this.bufferedStorage, messageBufferSubscription, messageToBePublished)
                 messageReleaseSubscription = this.deactivateReleaseSubscription(messageReleaseSubscription)
@@ -62,6 +66,21 @@ export class ErrorHandlingService {
             }
         })
         return releaseMessageSubject
+    }
+
+    private checkBufferLimit(message: Subject<any>, statusReport: Subject<ReportStatus>) {
+        message.subscribe(() => {
+            if (this.bufferedStorage.length >= this.maximumBufferLength) {
+                // for every messges that comes in, check the bufffer size, if it exceesd more than designated amount, push a red report status i
+                console.log(`Buffer length exceeds limit imposed!!!`)
+                let report: ReportStatus = {
+                    code: ColorCode.RED,
+                    message: `Buffer is exceeding limit. Initiate storage transfer to designated database. `
+                }
+                statusReport.next(report)
+
+            }
+        })
     }
 
     // Release the incoming Messages to be returned to the caller
@@ -156,6 +175,7 @@ export class ErrorHandlingService {
 
     // As the name implies, transder all the messages from the local instance into mongoStorage. Local instance should be emptied after transfer is completed
     private async transferBufferedMessagseToMongoStorage(bufferedMessage: MessageLog[], messageBufferSubscription) {
+        console.log(`Transferring buffered messages into database.`)
         let bufferedStorage: Observable<MessageLog> = from(bufferedMessage)
         bufferedStorage.subscribe({
             next: (message: MessageLog) => {

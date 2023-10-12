@@ -29,8 +29,9 @@ export interface ServerResponse {
 }
 
 export interface ReportStatus {
-    code: ColorCode
-    message: string
+    code: ColorCode,
+    message: string,
+    payload?: any
 }
 // https://grpc.io/docs/what-is-grpc/core-concepts/
 export interface GrpcConnectionType {

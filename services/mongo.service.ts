@@ -23,7 +23,7 @@ export class MongoConnectionService {
                 // Connection did not resolve, 
                 console.log(`Something Wrong occured. Please check at manageMongoConnection`)
             }
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second before the next attempt
+            await new Promise(resolve => setTimeout(resolve, 500)); // Wait for 1 second before the next attempt
         }
     }
 
@@ -88,24 +88,28 @@ export class MongoConnectionService {
     }
 
     public async extractAllMessages(subjectArgs: Subject<any>): Promise<void> {
-        const eventStream = this.messageModel?.find().lean().cursor();
-        eventStream.on('data', (message) => {
-            // Emit each document to the subject
-            subjectArgs.next(message);
-        });
+        if (this.messageModel) {
+            const eventStream = this.messageModel.find().lean().cursor()
+            eventStream.on('data', (message) => {
+                // Emit each document to the subject
+                subjectArgs.next(message);
+            });
 
-        eventStream.on('end', async () => {
-            // All data has been streamed, complete the subject
-            subjectArgs.complete();
+            eventStream.on('end', async () => {
+                // All data has been streamed, complete the subject
+                subjectArgs.complete();
 
-            // Delete the data once it has been streamed
-            try {
-                await this.messageModel.deleteMany({});
-                console.log('Data in Mongo deleted successfully.');
-            } catch (err) {
-                console.error('Error deleting data:', err);
-            }
-        });
+                // Delete the data once it has been streamed
+                try {
+                    await this.messageModel.deleteMany({});
+                    console.log('Data in Mongo deleted successfully.');
+                } catch (err) {
+                    console.error('Error deleting data:', err);
+                }
+            });
+        } else {
+            console.log(`Error: Message Model is ${this.messageModel}!! Please set up the mongoose connectino properly!`)
+        }
 
     }
 

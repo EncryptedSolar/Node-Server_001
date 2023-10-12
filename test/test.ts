@@ -40,43 +40,43 @@
 //     return final
 // }
 
-class EventEmitter {
-    private events = {};
+// class EventEmitter {
+//     private events = {};
 
-    // Register a callback for an event
-    on(event, callback) {
-        if (!this.events[event]) {
-            this.events[event] = []; // registering the name of the event. Eg: login logout
-        }
-        this.events[event].push(callback); // registering the callabck. Not executing them immediately but rather waiting for the evnet ot happen
-    }
+//     // Register a callback for an event
+//     on(event, callback) {
+//         if (!this.events[event]) {
+//             this.events[event] = []; // registering the name of the event. Eg: login logout
+//         }
+//         this.events[event].push(callback); // registering the callabck. Not executing them immediately but rather waiting for the evnet ot happen
+//     }
 
-    // Emit an event and execute its callbacks
-    emit(event, data) {
-        const listeners = this.events[event];
-        if (listeners) {
-            for (const listener of listeners) {
-                listener(data);
-            }
-        }
-    }
-}
+//     // Emit an event and execute its callbacks
+//     emit(event, data) {
+//         const listeners = this.events[event];
+//         if (listeners) {
+//             for (const listener of listeners) {
+//                 listener(data);
+//             }
+//         }
+//     }
+// }
 
-const emitter = new EventEmitter();
+// const emitter = new EventEmitter();
 
-// Define a callback function for the 'Testing' event
-function login(args: any) {
-    console.log(`Logging in with ${args}`);
-}
-function logout(args: any) {
-    console.log(`Logging out with ${args}`);
-}
+// // Define a callback function for the 'Testing' event
+// function login(args: any) {
+//     console.log(`Logging in with ${args}`);
+// }
+// function logout(args: any) {
+//     console.log(`Logging out with ${args}`);
+// }
 
-// Register the 'login' callback for the 'Testing' event
-emitter.on('login', login);
-emitter.on('logout', logout);
-emitter.emit('login', 'Jane');
-emitter.emit('logout', `John`);
+// // Register the 'login' callback for the 'Testing' event
+// emitter.on('login', login);
+// emitter.on('logout', logout);
+// emitter.emit('login', 'Jane');
+// emitter.emit('logout', `John`);
 
 // sample callbacks
 // const personObject = {
@@ -92,3 +92,26 @@ emitter.emit('logout', `John`);
 // }
 
 // personObject.eatApple(appleObject)
+
+import { Subject, from, interval, of } from "rxjs"
+const interval123 = interval(1000)
+let numericalSubject: Subject<any> = new Subject()
+
+// interval123.subscribe(number => numericalSubject.next(number))
+let array: any[] = ['1', '2', '3', '4', '5']
+
+let count = 0
+const intervalId = setInterval(() => {
+    numericalSubject.next(array[count]);
+    count++;
+    if (count >= 1000) {
+        clearInterval(intervalId);
+        numericalSubject.complete();
+    }
+}, 1000)
+numericalSubject.subscribe(e => console.log(e))
+
+
+setTimeout(() => {
+    numericalSubject.next('123')
+}, 2900)

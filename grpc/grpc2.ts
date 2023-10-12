@@ -9,6 +9,7 @@ import { MongoConnectionService } from '../services/mongo.service';
 // Subject for bidirectional communication
 const mongoService: MongoConnectionService = new MongoConnectionService()
 const errorHandlingService: ErrorHandlingService = new ErrorHandlingService(mongoService)
+// const errorHandlingService: FisErrorHandlingService = new FisErrorHandlingService()
 const grpcService: GrpcService = new GrpcService()
 const messagesJSON: any = fs.readFileSync('payload.json')
 let parsedMessages: any[] = JSON.parse(messagesJSON) // load the fake messages generated for this trial 
@@ -19,16 +20,16 @@ let server1: string = 'localhost:3000'
 let unaryRequestSubject: Subject<any> = new Subject()
 
 /* Server Streaming Test case */
+errorHandlingService.handleMessage(unaryRequestSubject, statusControl).subscribe((messages) => {
+  messageToBeReleased.next(messages)
+})
+grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'server streaming' })
+
+/* Bidirectional streaming test case */
 // errorHandlingService.handleMessage(unaryRequestSubject, statusControl).subscribe((messages) => {
 //   messageToBeReleased.next(messages)
 // })
-// grpcService.createGrpcInstance(server1, unaryRequestSubject, statusControl, { instanceType: 'client', serviceMethod: 'server streaming' })
-
-/* Bidirectional streaming test case */
-errorHandlingService.handleMessage(dataMessages, statusControl).subscribe((messages) => {
-  messageToBeReleased.next(messages)
-})
-grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'bidirectional' })
+// grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'bidirectional' })
 
 
 
@@ -48,9 +49,11 @@ let testMessageRequest = {
 }
 
 setTimeout(() => {
-  unaryRequestSubject.next(testMessageRequest)
+  messageToBeReleased.next(testMessageRequest)
 }, 1000)
-// Create a bidirectional streaming call
+// setTimeout(() => {
+//   unaryRequestSubject.next(testMessageRequest)
+// }, 7000)
 
 // this is just to publish an array of fake data as a Subject
 function stream(): Subject<any> {

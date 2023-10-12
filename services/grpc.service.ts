@@ -1,7 +1,8 @@
 import * as grpc from '@grpc/grpc-js';
-import { Subject } from 'rxjs';
+import { Subject, Subscription, take, takeUntil } from 'rxjs';
 import { ColorCode, GrpcConnectionType, MessageLog, ReportStatus } from '../interfaces/general.interface';
 import { Status } from '@grpc/grpc-js/build/src/constants';
+import { ErrorHandlingService } from './error.handling.service';
 const message_proto = require('./protos/server.proto')
 
 export class GrpcService {
@@ -113,25 +114,46 @@ export class GrpcService {
             try {
                 // https://github.com/grpc/proposal/blob/master/L5-node-client-interceptors.md
                 let server: grpc.Server = new grpc.Server();
-                let clients: any = {}
+                let onHold: any = null
                 // Add the streamingData function to the gRPC service
                 // Define your message_proto.Message service methods
 
                 server.addService(message_proto.Message.service, {
-                    sendMessageStream: (call) => { // this is for bidirectional streaming. Need to have another one for unary calls for web clients
-                        let clientAddress = call.getPeer();
-                        clients[clientAddress] = clientAddress
-
-                        console.log(`Client connected from: ${clientAddress}`);
+                    sendMessageStream: (call) => {
+                        console.log(`Client connected from: ${call.getPeer()}`);
+                        let report: ReportStatus = {
+                            code: ColorCode.GREEN,
+                            message: `Client connected!!`
+                        }
+                        statusControl.next(report)
 
                         // Right now this is being broadcast.
-                        messageToBeStream.subscribe({
+                        let subscription: Subscription = messageToBeStream.subscribe({
                             next: (payload: any) => {
-                                console.log(`Sending ${payload.appData.msgId}`)
-                                let message: string = JSON.stringify(payload)
-                                call.write({ message })
-                                // let operation = call.write({ message })
-                                // console.log(operation) // Somehow returns boolean
+                                let noConnection = call.cancelled // check connection for each and every message
+                                if (noConnection === true) { // that means there's no connection, beccause the cancel operation is determined to check 
+                                    let report: ReportStatus = {
+                                        code: ColorCode.YELLOW,
+                                        message: `Client is not alive.....`
+                                    }
+                                    // Put onhold as optional payload to be buffed by eervice
+
+                                    onHold = payload // assign the released message but not sent over to onHold. This is to temporarily buffer the value
+                                    console.log(`Assiging ${onHold.appData?.msgId} to onHold....`)
+                                    statusControl.next(report)
+                                    subscription.unsubscribe()
+                                } else {
+                                    if (onHold) { // if there's connection, check if there's anything from the previous onhold message. IF so, send this first
+                                        console.log(`Sending previously onHOLD: ${onHold.appData?.msgId ?? `What ever that's in here`}`)
+                                        let message: string = JSON.stringify(onHold)
+                                        call.write({ message })
+                                        onHold = null
+                                    }
+                                    console.log(`Sending ${payload.appData.msgId}`)
+                                    let message: string = JSON.stringify(payload)
+                                    call.write({ message })
+                                    // onHold = null
+                                }
                             },
                             error: err => console.error(err),
                             complete: () => { } //it will never complete
@@ -224,7 +246,7 @@ export class GrpcService {
             call.on('data', (data: any) => {
                 // console.log(data)
                 let message = JSON.parse(data.message)
-                console.log(`Received acknowledgement from Server: ${message.msgId ?? `Invalid`}`);
+                console.log(`Received acknowledgement from Server: ${message.msgId ?? message.appData?.msgId ?? `Invalid`}`);
             });
 
             call.on('error', (err) => {
@@ -247,34 +269,53 @@ export class GrpcService {
             try {
                 // https://github.com/grpc/proposal/blob/master/L5-node-client-interceptors.md
                 let server: grpc.Server = new grpc.Server();
-                let clients: any = {}
+                let onHold: any
                 // Add the streamingData function to the gRPC service
                 // Define your message_proto.Message service methods
 
                 server.addService(message_proto.Message.service, {
                     HandleMessage: (call) => { // this is for bidirectional streaming. Need to have another one for unary calls for web clients
-                        let clientAddress = call.getPeer();
-                        clients[clientAddress] = clientAddress
-
-                        console.log(`Client connected from: ${clientAddress}`);
-
-                        // Right now this is being broadcast.
-                        messageToBeStream.subscribe({
+                        console.log(`Client connected from: ${call.getPeer()}`);
+                        // let request = call.request // just putting it here to verify unary call request
+                        let report: ReportStatus = {
+                            code: ColorCode.GREEN,
+                            message: `Client connected!!`
+                        }
+                        statusControl.next(report)
+                        let subscription: Subscription = messageToBeStream.subscribe({
                             next: (payload: any) => {
-                                console.log(`Sending ${payload.appData.msgId}`)
-                                let message: string = JSON.stringify(payload)
-                                call.write({ message })
-                                // let operation = call.write({ message }) 
-                                console.log(call.cancelled) // Somehow returns boolean
+                                let noConnection = call.cancelled // check connection for each and every message
+                                if (noConnection === true) { // that means there's no connection, beccause the cancel operation is determined to check 
+                                    let report: ReportStatus = {
+                                        code: ColorCode.YELLOW,
+                                        message: `Client is not alive.....`,
+                                        payload: payload
+                                    }
+                                    statusControl.next(report)
+                                    subscription.unsubscribe()
+                                } else {
+                                    console.log(`Sending ${payload.appData.msgId}`)
+                                    let message: string = JSON.stringify(payload)
+                                    call.write({ message })
+                                    // onHold = null
+                                }
                             },
-                            error: err => console.error(err),
-                            complete: () => { } //it will never complete
+                            error: err => {
+                                console.error(err)
+                                let report: ReportStatus = {
+                                    code: ColorCode.YELLOW,
+                                    message: `Message streaming error`
+                                }
+                                statusControl.next(report)
+                            },
+                            complete: () => console.log(``)  //it will never complete
                         })
 
                         call.on('data', (data: any) => {
                             // console.log(data) // it does return in string format
                             let payload = JSON.parse(data.message)
-                            console.log(`Received Message from Client: ${payload.appData?.msgId}`);
+                            console.log(data)
+                            // console.log(`Received Message from Client: ${payload.appData?.msgId}`);
                             // Forward the received message to the RxJS subject
                             let respmsg: any = {
                                 msgId: payload.appData?.msgId,
@@ -301,7 +342,6 @@ export class GrpcService {
                             console.log('Unknown cause for diconnectivity');
                             // Handle client closure, which may be due to errors or manual termination
                         });
-
                     },
 
                     Check: (_, callback) => {
@@ -326,22 +366,22 @@ export class GrpcService {
         })
     }
 
-    // Create a bidirectional streaming call
+    // Create a server streaming call. Please note that the structure of the code would not be the same as bidirectional because of it's unary nature
     private async createServerStreamingClient(server: string, alreadyHealthCheck: boolean, unaryRequestSubject: Subject<any>, statusControl: Subject<ReportStatus>): Promise<string> {
-        let subscription: any
-        let unsubscribed: boolean = false
-
         return new Promise(async (resolve, reject) => {
             const client = new message_proto.Message(server, grpc.credentials.createInsecure());
-
+            this.checkConnectionHealth(client, statusControl, alreadyHealthCheck)
             unaryRequestSubject.subscribe({
                 next: (request: any) => {
+
                     let message = {
                         id: '123',
                         message: JSON.stringify(request)
                     }
+
                     console.log(`Sending request: ${message.id} over to server....`)
-                    const call = client.HandleMessage(message);
+                    const call = client.HandleMessage(message)
+
                     call.on('status', (status: Status) => {
                         // console.log(status) // For more info: https://grpc.github.io/grpc/core/md_doc_statuscodes.html
                         // https://grpc.io/docs/what-is-grpc/core-concepts/#streaming
@@ -350,13 +390,13 @@ export class GrpcService {
                             // RPC completed successfully
                         } if (status == grpc.status.UNAVAILABLE) {
                             resolve('No connection established. Server is not responding..')
+                            let report = {
+                                code: ColorCode.YELLOW,
+                                message: `Server doesn't seem to be alive. Error returned.`
+                            }
+                            statusControl.next(report)
                         }
                     });
-
-                    this.checkConnectionHealth(client, statusControl, alreadyHealthCheck)
-
-                    // All the grpc operations are here
-                    // Subscribe to the RxJS subject to send data to the server
 
                     call.on('data', (data: any) => {
                         let message = JSON.parse(data.message)
@@ -364,17 +404,32 @@ export class GrpcService {
                     });
 
                     call.on('error', (err) => {
-                        resolve(err)
+                        let report = {
+                            code: ColorCode.YELLOW,
+                            message: `Server doesn't seem to be alive. Error returned.`
+                        }
+                        statusControl.next(report)
+                        // resolve(err)
                     });
 
-                    call.on('end', () => {
-                        if (!unsubscribed && subscription) { // kill subcription to prevent memory leaks
-                            subscription.unsubscribe();
-                            unsubscribed = true;
+                    call.on('end', () => { // this is for gracefull || willfull termination from the server
+                        let report = {
+                            code: ColorCode.YELLOW,
+                            message: `Server doesn't seem to be alive. Error returned.`
                         }
-                        resolve('Server Error');
+                        statusControl.next(report)
+                        // subscription.unsubscribe(); // this is not correct i am just destroying the entire operation. i should be terminating the instance to which i think it does by it self
+                        // resolve('Server Error');
                     });
-                }
+                    /* Avoid rsolving at the moment. Because initially it was intended for the bi directional streaming to continue to instantiate the client
+                    should there be any rpc errors or internet connection errors. In this case, we just want to listen to incoming unary call without terminating the session
+                    A separate resolve will be prepared for the subject should it fails in its operation */
+                },
+                error: error => {
+                    console.error(error),
+                        resolve(error)
+                },
+                complete: () => { } // should not complete since this is an indefinite listening process to transmit requests made by relevant client application
             })
 
 

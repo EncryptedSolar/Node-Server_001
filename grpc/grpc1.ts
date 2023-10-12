@@ -6,10 +6,11 @@ import { ReportStatus } from "../interfaces/general.interface";
 import { ErrorHandlingService } from "../services/error.handling.service";
 import { MongoConnectionService } from "../services/mongo.service";
 
-const gprcService: GrpcService = new GrpcService()
 const messagesJSON: any = fs.readFileSync('payload.json')
 const mongoService: MongoConnectionService = new MongoConnectionService()
+// const errorHandlingService: FisErrorHandlingService = new FisErrorHandlingService()
 const errorHandlingService: ErrorHandlingService = new ErrorHandlingService(mongoService)
+const gprcService: GrpcService = new GrpcService()
 
 let parsedMessages: any[] = JSON.parse(messagesJSON) // load the fake messages generated for this trial 
 let dataMessages = stream() // Emulate messges to be sent over to target server
@@ -17,19 +18,19 @@ let messageToBePublished: Subject<any> = new Subject()
 let statusControl: Subject<ReportStatus> = new Subject()
 
 /* For server streaming */
+errorHandlingService.handleMessage(dataMessages, statusControl).subscribe((messages) => {
+  messageToBePublished.next(messages)
+})
+let server1 = 'localhost:3000'
+gprcService.createGrpcInstance(server1, messageToBePublished, statusControl, { instanceType: 'server', serviceMethod: 'server streaming' })
+
+
+/* For bidiretional streaming*/
 // errorHandlingService.handleMessage(dataMessages, statusControl).subscribe((messages) => {
 //   messageToBePublished.next(messages)
 // })
 // let server1 = 'localhost:3000'
-// gprcService.createGrpcInstance(server1, dataMessages, statusControl, { instanceType: 'server', serviceMethod: 'server streaming' })
-
-
-/* For bidiretional streaming*/
-errorHandlingService.handleMessage(messageToBePublished, statusControl).subscribe((messages) => {
-  messageToBePublished.next(messages)
-})
-let server1 = 'localhost:3000'
-gprcService.createGrpcInstance(server1, messageToBePublished, statusControl, { instanceType: 'server', serviceMethod: 'bidirectional' })
+// gprcService.createGrpcInstance(server1, messageToBePublished, statusControl, { instanceType: 'server', serviceMethod: 'bidirectional' })
 
 
 // setTimeout(() => {
