@@ -48,10 +48,10 @@ export class GrpcService {
         while (true) {
             try {
                 if (connectionType.instanceType == 'client' && connectionType.serviceMethod == 'bidirectional') {
-                    await this.createBidirectionalStreamingConnection(serverUrl, alreadyHealthCheck, messageToBeTransmitted, statusControl);
+                    await this.createBidirectionalStreamingClient(serverUrl, alreadyHealthCheck, messageToBeTransmitted, statusControl);
                 }
                 if (connectionType.instanceType == 'client' && connectionType.serviceMethod == 'server streaming') {
-                    await this.createServerStreamingConnection(serverUrl, alreadyHealthCheck, messageToBeTransmitted, statusControl);
+                    await this.createServerStreamingClient(serverUrl, alreadyHealthCheck, messageToBeTransmitted, statusControl);
                 }
                 if (connectionType.instanceType == 'server' && connectionType.serviceMethod == 'bidirectional') {
                     await this.createGrpcBidirectionalServer(serverUrl, messageToBeTransmitted, statusControl)
@@ -93,7 +93,7 @@ export class GrpcService {
             // Check for a pause of more than 3 seconds since the last resolution attempt
             const currentTime = Date.now();
             const timeSinceLastResolution = currentTime - lastResolutionTime;
-            if (timeSinceLastResolution > 3000) {
+            if (timeSinceLastResolution > 2000) {
                 consecutiveResolutions = 0;
                 yellowErrorEmission = false
                 redErrorEmission = false
@@ -149,7 +149,7 @@ export class GrpcService {
                             let message: string = JSON.stringify(respmsg)
                             console.log(`Responding to client: ${respmsg.msgId}`);
                             // Note: The parameter here MUST BE STRICTLY be the same letter as defined in proto. Eg: message MessageRequest { string >>'message'<< = 1 }
-                            call.write({ message });
+                            // call.write({ message });
                         });
 
                         call.on('end', () => {
@@ -193,7 +193,7 @@ export class GrpcService {
     }
 
     // Create a bidirectional streaming call
-    private async createBidirectionalStreamingConnection(server: string, alreadyHealthCheck: boolean, messageToBeTransmitted: Subject<any>, statusControl: Subject<ReportStatus>): Promise<string> {
+    private async createBidirectionalStreamingClient(server: string, alreadyHealthCheck: boolean, messageToBeTransmitted: Subject<any>, statusControl: Subject<ReportStatus>): Promise<string> {
         let subscription: any
         let unsubscribed: boolean = false
 
@@ -228,7 +228,7 @@ export class GrpcService {
             });
 
             call.on('error', (err) => {
-                resolve(err)
+                console.log(`Something wrong with RPC call...`)
             });
 
             call.on('end', () => {
@@ -264,8 +264,8 @@ export class GrpcService {
                                 console.log(`Sending ${payload.appData.msgId}`)
                                 let message: string = JSON.stringify(payload)
                                 call.write({ message })
-                                // let operation = call.write({ message })
-                                // console.log(operation) // Somehow returns boolean
+                                // let operation = call.write({ message }) 
+                                console.log(call.cancelled) // Somehow returns boolean
                             },
                             error: err => console.error(err),
                             complete: () => { } //it will never complete
@@ -327,7 +327,7 @@ export class GrpcService {
     }
 
     // Create a bidirectional streaming call
-    private async createServerStreamingConnection(server: string, alreadyHealthCheck: boolean, unaryRequestSubject: Subject<any>, statusControl: Subject<ReportStatus>): Promise<string> {
+    private async createServerStreamingClient(server: string, alreadyHealthCheck: boolean, unaryRequestSubject: Subject<any>, statusControl: Subject<ReportStatus>): Promise<string> {
         let subscription: any
         let unsubscribed: boolean = false
 
@@ -360,7 +360,7 @@ export class GrpcService {
 
                     call.on('data', (data: any) => {
                         let message = JSON.parse(data.message)
-                        console.log(`Received acknowledgement from Server: ${message.appData?.msgId ?? `Invalid`}`);
+                        console.log(`Received data from Server: ${message.appData?.msgId ?? `Invalid`}`);
                     });
 
                     call.on('error', (err) => {

@@ -9,59 +9,112 @@ require('dotenv').config();
 export class FisErrorHandlingService {
     private mongoUrl: string = process.env.MONGO + 'emergencyStorage'
     private bufferedStorage: MessageLog[] = []
-    private connectionStatus: boolean = true
     private mongoConnection: any
     private messageModel: any
 
     constructor() {
+        // Connect to mongoDB. 
         this.manageMongoConnection()
         this.mongoConnection.once('open', () => {
             this.messageModel = this.mongoConnection.model('Message', require('../models/message.schema'));
         })
     }
 
+    // Main function that intercepts outgoing messages by communicating || intepreting report status from grpc connection as indicator 
     public handleMessage(messageToBePublished: Subject<MessageLog>, statusReport: Subject<ReportStatus>): Subject<MessageLog> {
-        let releaseMessageSubject: Subject<MessageLog> = new Subject()
-        let messageReleaseSubscription: Subscription | null = null; // Initialize as null
+        let releaseMessageSubject: Subject<MessageLog> = new Subject() // A return value
+        // Using the concept of toggling to improve the eficacy of subscription control && data flow
+        let messageReleaseSubscription: Subscription | null = null 
         let messageBufferSubscription: Subscription | null = null
         let messageStreamToMongo: Subscription | null = null
+
         statusReport.subscribe((report: any) => {
             if (report.code == ColorCode.GREEN) {
-                this.connectionStatus = true
-                console.log(`Connection status report: ${this.connectionStatus} && ${report.message ?? 'No Message'}`)
-                messageStreamToMongo = this.deactivateMongoStreamSubscription(messageStreamToMongo)
-                this.releaseMessageFromLocalBuffer(this.bufferedStorage).then((resObs: Observable<MessageLog>) => {
-                    resObs.subscribe({
-                        next: message => releaseMessageSubject.next(message),
-                        error: err => console.error(err),
-                        complete: () => {
-                            this.bufferedStorage = []
-                            console.log(`Reset buffer Storage count: ${this.bufferedStorage.length}. All messages have been released back into the stream.`)
-                        }
+                console.log(`Connection status report && ${report.message ?? 'No Message'}`)
+                /* Status Chain begins */
+                let status: Status = 1
+                if (status === 1) {
+                    messageStreamToMongo = this.deactivateMongoStreamSubscription(messageStreamToMongo) 
+                    if (messageStreamToMongo) status = -1 
+                }
+                if (status === 1) {
+                    messageBufferSubscription = this.deactivateBufferSubscription(messageBufferSubscription)
+                    if (messageBufferSubscription) status = -1
+                }
+                if (status === 1) {
+                    messageReleaseSubscription = this.activateReleaseSubscription(messageReleaseSubscription, messageToBePublished, releaseMessageSubject)
+                    if (!messageReleaseSubscription) status = -1
+                }
+                if (status === 1) {
+                    this.releaseMessageFromLocalBuffer(this.bufferedStorage).then((resObs: Observable<MessageLog>) => {
+                        resObs.subscribe({
+                            next: message => releaseMessageSubject.next(message),
+                            error: err => console.error(err),
+                            complete: () => {
+                                this.bufferedStorage = []
+                                console.log(`Reset buffer Storage count: ${this.bufferedStorage.length}. All messages have been released back into the stream.`)
+                            }
+                        })
+                    }).catch((err) => {
+                        status = -1
+                        console.error(err)
                     })
-                }).catch((err) => console.error(err))
-                this.releaseMessageFromMongoStorage().then((resObs: Subject<MessageLog>) => {
-                    resObs.subscribe({
-                        next: message => releaseMessageSubject.next(message),
-                        error: err => console.error(err),
-                        complete: () => console.log(`All Mongo data are transferred `)
+                }
+                if (status === 1) {
+                    this.releaseMessageFromMongoStorage().then((resObs: Subject<MessageLog>) => {
+                        resObs.subscribe({
+                            next: message => releaseMessageSubject.next(message),
+                            error: err => console.error(err),
+                            complete: () => console.log(`All Mongo data are transferred `)
+                        })
+                    }).catch((err) => {
+                        status = -1
+                        console.error(err)
                     })
-                }).catch((err) => console.error(err))
-                messageReleaseSubscription = this.activateReleaseSubscription(messageReleaseSubscription, messageToBePublished, releaseMessageSubject)
-                messageBufferSubscription = this.deactivateBufferSubscription(messageBufferSubscription)
+                }
+                if (status === -1) {
+                    console.log(`Something Went Wrong in handling ${ColorCode.RED} report.`)
+                }
+
             }
             if (report.code == ColorCode.YELLOW) {
-                this.connectionStatus = false
-                console.log(`Connection status report: ${this.connectionStatus} && ${report.message ?? 'No Message'}`)
-                messageReleaseSubscription = this.deactivateReleaseSubscription(messageReleaseSubscription)
-                messageBufferSubscription = this.activateBufferSubscription(this.bufferedStorage, messageBufferSubscription, messageToBePublished)
+                console.log(`Connection status report && ${report.message ?? 'No Message'}`)
+
+                let status: Status = 1
+                /* Status Chain begins */
+                if (status === 1) {
+                    messageBufferSubscription = this.activateBufferSubscription(this.bufferedStorage, messageBufferSubscription, messageToBePublished)
+                    if (!messageBufferSubscription) status = -1
+                }
+                if (status === 1) {
+                    messageReleaseSubscription = this.deactivateReleaseSubscription(messageReleaseSubscription)
+                    if (messageReleaseSubscription) status = -1
+                }
+                if (status === -1) {
+                    console.log(`Something Went Wrong in handling ${ColorCode.RED} report.`)
+                }
             }
             if (report.code == ColorCode.RED) {
-                this.connectionStatus = false
                 console.log(`Connection status report: Server down. ${report.message} lol`)
-                this.transferBufferedMessagseToMongoStorage(this.bufferedStorage, messageBufferSubscription)
-                messageBufferSubscription = this.deactivateBufferSubscription(messageBufferSubscription)
-                messageStreamToMongo = this.activateMongoStreamSubscription(messageStreamToMongo, messageToBePublished)
+
+                let status: Status = 1
+                if (status === 1) {
+                    messageStreamToMongo = this.activateMongoStreamSubscription(messageStreamToMongo, messageToBePublished)
+                    if (!messageStreamToMongo) status = -1
+                }
+                if (status === 1) {
+                    messageBufferSubscription = this.deactivateBufferSubscription(messageBufferSubscription)
+                    if (messageBufferSubscription) status = -1
+                }
+                if (status === 1) {
+                    this.transferBufferedMessagseToMongoStorage(this.bufferedStorage, messageBufferSubscription).then((res: MessageLog[]) => {
+                        if (res.length !== this.bufferedStorage.length || this.bufferedStorage.length > 0) status = -1 // this promise function should return an empty array
+                    })
+                }
+                if (status === -1) {
+                    console.log(`Something Went Wrong in handling ${ColorCode.RED} report.`)
+                }
+
             }
             if (!report.code || report.code == "") {
                 console.log(`Unknown message...`)
@@ -70,8 +123,8 @@ export class FisErrorHandlingService {
         return releaseMessageSubject
     }
 
-    // Function to activate the subscription
-    private activateReleaseSubscription(messageReleaseSubscription, messageToBePublished, releaseMessageSubject): any {
+    // Release the incoming Messages to be returned to the caller
+    private activateReleaseSubscription(messageReleaseSubscription, messageToBePublished, releaseMessageSubject): Subscription | null {
         if (!messageReleaseSubscription) {
             messageReleaseSubscription = messageToBePublished.subscribe({
                 next: (message: MessageLog) => {
@@ -88,8 +141,8 @@ export class FisErrorHandlingService {
         return messageReleaseSubscription
     }
 
-    // Function to deactivate the subscription
-    private deactivateReleaseSubscription(messageReleaseSubscription): any {
+    // Stop the incoming Messaes to be returned to caller
+    private deactivateReleaseSubscription(messageReleaseSubscription): Subscription | null {
         if (messageReleaseSubscription) {
             messageReleaseSubscription.unsubscribe();
             messageReleaseSubscription = null;
@@ -100,8 +153,8 @@ export class FisErrorHandlingService {
         return messageReleaseSubscription
     }
 
-    // Function to activate the subscription
-    private activateBufferSubscription(bufferStorage: MessageLog[], messageBufferSubscription, messageToBePublished): any {
+    // Begin to push the incoming messages into local instantarray
+    private activateBufferSubscription(bufferStorage: MessageLog[], messageBufferSubscription: Subscription | null, messageToBePublished: Subject<any>): Subscription | null {
         if (!messageBufferSubscription) {
             messageBufferSubscription = messageToBePublished.subscribe({
                 next: (message: MessageLog) => {
@@ -118,8 +171,8 @@ export class FisErrorHandlingService {
         return messageBufferSubscription
     }
 
-    // Function to deactivate the subscription
-    private deactivateBufferSubscription(messageBufferSubscription): any {
+    // Stop pushing the incoming messages into local instantarray
+    private deactivateBufferSubscription(messageBufferSubscription: Subscription | null): Subscription | null {
         if (messageBufferSubscription) {
             messageBufferSubscription.unsubscribe();
             messageBufferSubscription = null;
@@ -130,8 +183,8 @@ export class FisErrorHandlingService {
         return null
     }
 
-    // Function to activate the subscription
-    private activateMongoStreamSubscription(messageStreamToMongo, messageToBePublished): any {
+    // Change the streaming direction of the incoming messages into mongo streaming subject( to be saved in local databse )
+    private activateMongoStreamSubscription(messageStreamToMongo: Subscription | null, messageToBePublished: Subject<any>): Subscription | null {
         if (!messageStreamToMongo) {
             messageStreamToMongo = messageToBePublished.subscribe({
                 next: (message: MessageLog) => {
@@ -148,8 +201,8 @@ export class FisErrorHandlingService {
         return messageStreamToMongo
     }
 
-    // Function to deactivate the subscription
-    private deactivateMongoStreamSubscription(messageStreamToMongo): any {
+    // Stop or cut off the mongo streaming
+    private deactivateMongoStreamSubscription(messageStreamToMongo: Subscription | null): Subscription | null {
         if (messageStreamToMongo) {
             messageStreamToMongo.unsubscribe();
             messageStreamToMongo = null;
@@ -160,6 +213,7 @@ export class FisErrorHandlingService {
         return messageStreamToMongo
     }
 
+    // Store in json file in this project folder. To be enabled in future
     private async transferMessageToLocalStorage(message: Subject<MessageLog>): Promise<void> {
         let localArray: MessageLog[] = this.bufferedStorage
         let filename = `localstorage.json`;
@@ -187,6 +241,7 @@ export class FisErrorHandlingService {
         }
     }
 
+    // To be used by mongoStreamSubscription to perform the saving execution
     private async saveToMongo(message: MessageLog): Promise<boolean> {
         return new Promise((resolve, reject) => {
             // let messageModel: Model<any> = this.mongoConnection.model('Message', require('../models/message.schema'))
@@ -200,24 +255,32 @@ export class FisErrorHandlingService {
         })
     }
 
-    private async transferBufferedMessagseToMongoStorage(bufferedMessage: MessageLog[], messageBufferSubscription) {
-        let bufferedStorage: Observable<MessageLog> = from(bufferedMessage)
-        bufferedStorage.subscribe({
-            next: (message: MessageLog) => {
-                this.saveToMongo(message).then((res) => {
-                    console.log(`Message ${message.appData.msgId} saved successfully...`)
-                }).catch((err) => console.error(err))
-            },
-            error: (error) => console.error(error),
-            complete: () => {
-                this.bufferedStorage = []
-                if (messageBufferSubscription) {
-                    console.log(`All ${bufferedMessage.length} buffered messages have been sent for transfer to ${this.mongoUrl}. Current length: ${this.bufferedStorage.length}`)
+    // As the name implies, transder all the messages from the local instance into mongoStorage. Local instance should be emptied after transfer is completed
+    private async transferBufferedMessagseToMongoStorage(bufferedMessage: MessageLog[], messageBufferSubscription): Promise<MessageLog[]> {
+        return new Promise((resolve, reject) => {
+            let bufferedStorage: Observable<MessageLog> = from(bufferedMessage)
+            bufferedStorage.subscribe({
+                next: (message: MessageLog) => {
+                    this.saveToMongo(message).then((res) => {
+                        console.log(`Message ${message.appData.msgId} saved successfully...`)
+                    }).catch((err) => console.error(err))
+                },
+                error: (error) => {
+                    reject(error)
+                    console.error(error)
+                },
+                complete: () => {
+                    this.bufferedStorage = []
+                    if (messageBufferSubscription) {
+                        console.log(`All ${bufferedMessage.length} buffered messages have been sent for transfer to ${this.mongoUrl}. Current length: ${this.bufferedStorage.length}`)
+                    }
+                    resolve(this.bufferedStorage)
                 }
-            }
+            })
         })
     }
 
+    // Transfer stored messages from the local instance back into the stream to be returned to the caller.
     private async releaseMessageFromLocalBuffer(bufferedStorage: MessageLog[]): Promise<Observable<MessageLog>> {
         return new Promise((resolve, reject) => {
             if (bufferedStorage.length > 1) {
@@ -232,17 +295,18 @@ export class FisErrorHandlingService {
         })
     }
 
+    // Transder all the stored messages in designated mongo databases. It should be empty after all the data has been transferred.
     private async releaseMessageFromMongoStorage(): Promise<Subject<MessageLog>> {
         return new Promise((resolve, reject) => {
             let dataSubject: Subject<MessageLog> = new Subject()
-            const cursor = this.messageModel.find().lean().cursor();
+            const mongoEvent = this.messageModel.find().lean().cursor();
 
-            cursor.on('data', (message) => {
+            mongoEvent.on('data', (message) => {
                 // Emit each document to the subject
                 dataSubject.next(message);
             });
 
-            cursor.on('end', async () => {
+            mongoEvent.on('end', async () => {
                 // All data has been streamed, complete the subject
                 dataSubject.complete();
 
@@ -259,6 +323,7 @@ export class FisErrorHandlingService {
         })
     }
 
+    // Connect to designated mongodatabase.
     private async connectToMongoDatabase(): Promise<any> {
         return new Promise((resolve, reject) => {
             console.log(this.mongoUrl)
@@ -273,12 +338,12 @@ export class FisErrorHandlingService {
         })
     }
 
-    private async manageMongoConnection() {
+    // Manage mongoCOnnectino. The logic used would be different across differnet application. This will loop the process indefinitely os it is always trying to connect to database.
+    private async manageMongoConnection(): Promise<boolean> {
         while (true) {
             try {
-                await this.connectToMongoDatabase();
+                await this.connectToMongoDatabase()
             } catch (error) {
-                // Connection did not resolve, 
                 console.log(`Something Wrong occured. Please check at manageMongoConnection`)
             }
             await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second before the next attempt
@@ -286,3 +351,5 @@ export class FisErrorHandlingService {
     }
 
 }
+
+type Status = -1 | 0 | 1 // For status chain effect

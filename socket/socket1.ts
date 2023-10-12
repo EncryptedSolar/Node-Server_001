@@ -21,17 +21,17 @@ incomingMessage.subscribe({
     }
 })
 // Connect to mongoDB server && Create Socket io server
-connectMongo('usersDatabase', process.env.MONGO + '/users').then(() => {
-    return connectMongo('database2', process.env.MONGO + '/database2')
-}).then(() => {
-    return createIOserver(parseInt(process.env.PORT as string), notificationSubject).subscribe({
-        next: (message: Message) => checkMessage(message).then((res) => processMessage(res))
-    })
-}).then(() => {
-    console.log(mongoService.getAllConnectionStatus())
-}).catch((error) => {
-    console.error(`Error: ${error}`)
-})
+// connectMongo('usersDatabase', process.env.MONGO + '/users').then(() => {
+//     return connectMongo('database2', process.env.MONGO + '/database2')
+// }).then(() => {
+//     return createIOserver(parseInt(process.env.PORT as string), notificationSubject).subscribe({
+//         next: (message: Message) => checkMessage(message).then((res) => processMessage(res))
+//     })
+// }).then(() => {
+//     console.log(mongoService.getAllConnectionStatus())
+// }).catch((error) => {
+//     console.error(`Error: ${error}`)
+// })
 
 setTimeout(() => {
     console.log(`Getting status for usersdDatabse`)
@@ -100,13 +100,8 @@ async function processMessage(res: Message): Promise<any> {
 }
 
 
-async function connectMongo(dbName: string, dbURI: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-        mongoService.createConnection(dbName, dbURI).then((res: string) => {
-            console.log(`[MainSocket]Connection established: ${res}`)
-            resolve(res)
-        })
-    })
+function connectMongo(dbName: string, dbURI: string): void {
+    mongoService.manageMongoConnection(dbName, dbURI)
 }
 
 

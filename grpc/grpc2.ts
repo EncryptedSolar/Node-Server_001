@@ -3,9 +3,12 @@ import { Subject } from 'rxjs';
 import { ColorCode, ReportStatus } from '../interfaces/general.interface';
 import { GrpcService } from '../services/grpc.service';
 import { FisErrorHandlingService } from '../services/error.handling.service.fis';
+import { ErrorHandlingService } from '../services/error.handling.service';
+import { MongoConnectionService } from '../services/mongo.service';
 
 // Subject for bidirectional communication
-const errorHandlingService: FisErrorHandlingService = new FisErrorHandlingService()
+const mongoService: MongoConnectionService = new MongoConnectionService()
+const errorHandlingService: ErrorHandlingService = new ErrorHandlingService(mongoService)
 const grpcService: GrpcService = new GrpcService()
 const messagesJSON: any = fs.readFileSync('payload.json')
 let parsedMessages: any[] = JSON.parse(messagesJSON) // load the fake messages generated for this trial 
@@ -15,12 +18,19 @@ let dataMessages = stream() // Emulate messges to be sent over to target server
 let server1: string = 'localhost:3000'
 let unaryRequestSubject: Subject<any> = new Subject()
 
-errorHandlingService.handleMessage(unaryRequestSubject, statusControl).subscribe((messages) => {
+/* Server Streaming Test case */
+// errorHandlingService.handleMessage(unaryRequestSubject, statusControl).subscribe((messages) => {
+//   messageToBeReleased.next(messages)
+// })
+// grpcService.createGrpcInstance(server1, unaryRequestSubject, statusControl, { instanceType: 'client', serviceMethod: 'server streaming' })
+
+/* Bidirectional streaming test case */
+errorHandlingService.handleMessage(dataMessages, statusControl).subscribe((messages) => {
   messageToBeReleased.next(messages)
 })
+grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'bidirectional' })
 
-grpcService.createGrpcInstance(server1, unaryRequestSubject, statusControl, { instanceType: 'client', serviceMethod: 'server streaming' })
-// grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'bidirectional' })
+
 
 let testMessageRequest = {
   appLogLocId: "68ca0bae-2acd-44f2-b54c-836d6af92890",
@@ -39,7 +49,7 @@ let testMessageRequest = {
 
 setTimeout(() => {
   unaryRequestSubject.next(testMessageRequest)
-}, 2000)
+}, 1000)
 // Create a bidirectional streaming call
 
 // this is just to publish an array of fake data as a Subject
@@ -54,7 +64,7 @@ function stream(): Subject<any> {
       clearInterval(intervalId);
       result.complete();
     }
-  }, 1000)
+  }, 500)
 
   return result
 }

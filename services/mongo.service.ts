@@ -3,22 +3,30 @@ import { Subject } from 'rxjs';
 
 export class MongoConnectionService {
     private connections: Record<string, mongoose.Connection> = {}
+    private mongoUrl: any // an object
+    private messageModel: any
 
-    public async createConnection(dbName: string, dbURI: string): Promise<string> {
-        return new Promise(async (resolve, reject) => {
-            try {
-                const connection = await mongoose.createConnection(dbURI);
-                this.connections[dbName] = connection;
-                console.log(`[MongoService] Connecting to MongoDB database: ${dbURI}...`);
-                connection.on('connected', () => {
-                    resolve(dbName);
-                });
-            } catch (error) {
-                console.error(`[MongoService] MongoDB connection error for ${dbName}:`, error);
-                reject(error);
-            }
-        });
+    constructor() {
     }
+
+    // Enter indefinite loop for mongo connection
+    public async manageMongoConnection(dbName: string, dbUrl: string) {
+        while (true) {
+            try {
+                this.mongoUrl = {
+                    dbName: dbName,
+                    dbUrl: dbUrl,
+                    mongoUrl: dbUrl + dbName
+                }
+                await this.createConnection(this.mongoUrl.dbName, this.mongoUrl.mongoUrl);
+            } catch (error) {
+                // Connection did not resolve, 
+                console.log(`Something Wrong occured. Please check at manageMongoConnection`)
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second before the next attempt
+        }
+    }
+
 
     public getConnectionStatusDetails(dbName: string): Subject<string> {
         if (this.connections[dbName]) {
@@ -66,49 +74,61 @@ export class MongoConnectionService {
         }
     }
 
-    public async checkIfUserExist(email: string): Promise<any> {
-        return new Promise(async (resolve, reject) => {
-            try {
-                // Check for an existing connection or request one
-                const connection = await this.establishConnection('usersDatabase', {
-                    useNewUrlParser: true,
-                    useUnifiedTopology: true,
-                    // Other connection options as needed
-                });
-
-                // Use the connection to perform the database operation
-                const existingUser = await connection.model('User').findOne({ email: email });
-
-                if (!existingUser) {
-                    resolve('User not found');
-                } else {
-                    reject('User already exists!');
-                }
-            } catch (error) {
-                console.log(`Error: ${error}`);
-                reject(error);
-            }
-        });
-    }
-
-
-    public async registerUser(user: any): Promise<number> {
+    // To be used by mongoStreamSubscription to perform the saving execution
+    public async saveToMongo(message: any): Promise<boolean> {
         return new Promise((resolve, reject) => {
-
+            this.messageModel.create(message).then(() => {
+                console.log(`Saved MessageID ${message.appData?.msgId} into ${this.mongoUrl.dbName}`);
+                resolve(true)
+            }).catch((err) => {
+                console.log(`MongoSaveError: ${err.message}`)
+                reject(err)
+            })
         })
     }
 
-    private async establishConnection(connectionIdentifier, connectionOptions): Promise<any> {
-        return new Promise(async (resolve, reject) => {
-            console.log(this.connections);
-            // Check if a connection with the given identifier already exists
-            if (this.connections[connectionIdentifier]) {
-                resolve(connectionIdentifier);
-            } else {
-                console.log(`No connection with identifier '${connectionIdentifier}' found. Request a connection first.`);
-                reject(`No connection with identifier '${connectionIdentifier}' found. Request a connection first.`);
+    public async extractAllMessages(subjectArgs: Subject<any>): Promise<void> {
+        const eventStream = this.messageModel?.find().lean().cursor();
+        eventStream.on('data', (message) => {
+            // Emit each document to the subject
+            subjectArgs.next(message);
+        });
+
+        eventStream.on('end', async () => {
+            // All data has been streamed, complete the subject
+            subjectArgs.complete();
+
+            // Delete the data once it has been streamed
+            try {
+                await this.messageModel.deleteMany({});
+                console.log('Data in Mongo deleted successfully.');
+            } catch (err) {
+                console.error('Error deleting data:', err);
             }
         });
+
+    }
+
+
+    private async createConnection(dbName: string, dbUrl: string): Promise<any> {
+        return new Promise(async (resolve, reject) => {
+            try {
+                let connection = await mongoose.createConnection(dbUrl)
+                this.connections[dbName] = connection
+                this.connections[dbName].on('error', (error) => {
+                    console.error('Connection error:', error);
+                    resolve('')
+                });
+                this.connections[dbName].once('open', () => {
+                    console.log(`Connected to ${process.env.MONGO}`);
+                    this.messageModel = this.connections[this.mongoUrl.dbName].model('Message', require('../models/message.schema'));
+                });
+            }
+            catch (error) {
+                console.log(`Something wrong here at create COnnection???`)
+                reject(error)
+            }
+        })
     }
 
 }
