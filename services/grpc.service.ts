@@ -2,7 +2,6 @@ import * as grpc from '@grpc/grpc-js';
 import { Subject, Subscription, take, takeUntil } from 'rxjs';
 import { ColorCode, GrpcConnectionType, MessageLog, ReportStatus } from '../interfaces/general.interface';
 import { Status } from '@grpc/grpc-js/build/src/constants';
-import { ErrorHandlingService } from './error.handling.service';
 const message_proto = require('./protos/server.proto')
 
 export class GrpcService {
@@ -62,11 +61,11 @@ export class GrpcService {
                 }
                 // If connection resolves (indicating failure), increment the count
                 consecutiveResolutions++;
-                console.log(`Reconnection Attempt: ${consecutiveResolutions}`)
+                // console.log(`Reconnection Attempt: ${consecutiveResolutions}`)
                 alreadyHealthCheck = true
 
 
-                // If there are 60 consecutive resolutions, log an error and break the loop
+                // If there are x consecutive resolutions, log an error and break the loop
                 if (consecutiveResolutions >= parseInt(process.env.ReconnectionAttempt as string) && redErrorEmission == false) {
                     redErrorEmission = true
                     console.error(`Connection failed ${consecutiveResolutions} times. Stopping connection attempts.`);
@@ -76,7 +75,7 @@ export class GrpcService {
                     }
                     statusControl.next(error)
                 }
-                if (consecutiveResolutions < 5 && yellowErrorEmission == false) {
+                if (consecutiveResolutions < parseInt(process.env.ReconnectionAttempt as string) && yellowErrorEmission == false) {
                     yellowErrorEmission = true
                     let error: ReportStatus = {
                         code: ColorCode.YELLOW,
@@ -114,7 +113,6 @@ export class GrpcService {
             try {
                 // https://github.com/grpc/proposal/blob/master/L5-node-client-interceptors.md
                 let server: grpc.Server = new grpc.Server();
-                let onHold: any = null
                 // Add the streamingData function to the gRPC service
                 // Define your message_proto.Message service methods
 
@@ -134,25 +132,15 @@ export class GrpcService {
                                 if (noConnection === true) { // that means there's no connection, beccause the cancel operation is determined to check 
                                     let report: ReportStatus = {
                                         code: ColorCode.YELLOW,
-                                        message: `Client is not alive.....`
+                                        message: `Client is not alive.....`,
+                                        payload: payload
                                     }
-                                    // Put onhold as optional payload to be buffed by eervice
-
-                                    onHold = payload // assign the released message but not sent over to onHold. This is to temporarily buffer the value
-                                    console.log(`Assiging ${onHold.appData?.msgId} to onHold....`)
-                                    statusControl.next(report)
-                                    subscription.unsubscribe()
+                                    statusControl.next(report) // no connection. Tell buffer service to stop releasing messages
+                                    subscription.unsubscribe() // i still dont understand why i wrote this here
                                 } else {
-                                    if (onHold) { // if there's connection, check if there's anything from the previous onhold message. IF so, send this first
-                                        console.log(`Sending previously onHOLD: ${onHold.appData?.msgId ?? `What ever that's in here`}`)
-                                        let message: string = JSON.stringify(onHold)
-                                        call.write({ message })
-                                        onHold = null
-                                    }
                                     console.log(`Sending ${payload.appData.msgId}`)
                                     let message: string = JSON.stringify(payload)
                                     call.write({ message })
-                                    // onHold = null
                                 }
                             },
                             error: err => console.error(err),
@@ -164,12 +152,12 @@ export class GrpcService {
                             let payload = JSON.parse(data.message)
                             console.log(`Received Message from Client: ${payload.appData?.msgId}`);
                             // Forward the received message to the RxJS subject
-                            let respmsg: any = {
-                                msgId: payload.appData?.msgId,
-                                confirmationMessage: `Message ${payload.appData?.msgId} acknowledged!`
-                            }
-                            let message: string = JSON.stringify(respmsg)
-                            console.log(`Responding to client: ${respmsg.msgId}`);
+                            // let respmsg: any = {
+                            //     msgId: payload.appData?.msgId,
+                            //     confirmationMessage: `Message ${payload.appData?.msgId} acknowledged!`
+                            // }
+                            // let message: string = JSON.stringify(respmsg)
+                            // console.log(`Responding to client: ${respmsg.msgId}`);
                             // Note: The parameter here MUST BE STRICTLY be the same letter as defined in proto. Eg: message MessageRequest { string >>'message'<< = 1 }
                             // call.write({ message });
                         });
@@ -214,7 +202,7 @@ export class GrpcService {
         })
     }
 
-    // Create a bidirectional streaming call
+
     private async createBidirectionalStreamingClient(server: string, alreadyHealthCheck: boolean, messageToBeTransmitted: Subject<any>, statusControl: Subject<ReportStatus>): Promise<string> {
         let subscription: any
         let unsubscribed: boolean = false
@@ -223,34 +211,43 @@ export class GrpcService {
             const client = new message_proto.Message(server, grpc.credentials.createInsecure());
             const call = client.sendMessageStream();
 
-            call.on('status', (status: Status) => {
+            this.checkConnectionHealth(client, statusControl, alreadyHealthCheck)
+
+            call.on('status', (status: Status) => { // this is useless in streaming(on for unary)
                 // console.log(status) // For more info: https://grpc.github.io/grpc/core/md_doc_statuscodes.html
                 // https://grpc.io/docs/what-is-grpc/core-concepts/#streaming
-                if (status == grpc.status.UNAVAILABLE) { // only returns a status when there's error. Otherwise it just waits
-                    resolve('No connection established. Server is not responding..')
-                }
+                // if (status == grpc.status.UNAVAILABLE) { // only returns a status when there's error. Otherwise it just waits
+                //     resolve('No connection established. Server is not responding..')
+                // }
             });
-            this.checkConnectionHealth(client, statusControl, alreadyHealthCheck)
 
             // All the grpc operations are here
             // Subscribe to the RxJS subject to send data to the server
-            subscription = messageToBeTransmitted.subscribe((data: any) => {
-                if (!unsubscribed) {
-                    let message: string = JSON.stringify(data)
-                    console.log(`Sending Data to Server: ${data.appData?.msgId}`);
-                    // Note: The parameter here MUST BE STRICTLY be the same letter as defined in proto. Eg: message MessageRequest { string >>'message'<< = 1 }
-                    call.write({ message });
-                }
+            subscription = messageToBeTransmitted.subscribe({
+                next: (payload: any) => {
+                    if (!unsubscribed) {
+                        console.log(`Sending ${payload.appData.msgId}`)
+                        let message: string = JSON.stringify(payload)
+                        call.write({ message })
+                    }
+                },
+                error: err => console.error(err),
+                complete: () => { } //it will never complete
             });
 
+
             call.on('data', (data: any) => {
-                // console.log(data)
                 let message = JSON.parse(data.message)
-                console.log(`Received acknowledgement from Server: ${message.msgId ?? message.appData?.msgId ?? `Invalid`}`);
+                console.log(`Received message from Server: ${message.msgId ?? message.appData?.msgId ?? `Invalid`}`);
             });
 
             call.on('error', (err) => {
-                console.log(`Something wrong with RPC call...`)
+                // console.log(`Something wrong with RPC call...`)
+                if (!unsubscribed && subscription) { // kill subcription to prevent memory leaks
+                    subscription.unsubscribe();
+                    unsubscribed = true;
+                }
+                resolve('Server Error');
             });
 
             call.on('end', () => {
@@ -370,10 +367,9 @@ export class GrpcService {
     private async createServerStreamingClient(server: string, alreadyHealthCheck: boolean, unaryRequestSubject: Subject<any>, statusControl: Subject<ReportStatus>): Promise<string> {
         return new Promise(async (resolve, reject) => {
             const client = new message_proto.Message(server, grpc.credentials.createInsecure());
-            this.checkConnectionHealth(client, statusControl, alreadyHealthCheck)
+            this.checkConnectionHealth(client, statusControl, alreadyHealthCheck) // atcually there's no need for this 
             unaryRequestSubject.subscribe({
                 next: (request: any) => {
-
                     let message = {
                         id: '123',
                         message: JSON.stringify(request)
@@ -449,10 +445,12 @@ export class GrpcService {
                     statusControl.next(report)
                 } else {
                     if (alreadyHealthCheck == false) console.error(`Health check failed: ${error}`);
+
                 }
             })
         })
     }
 
 }
+
 

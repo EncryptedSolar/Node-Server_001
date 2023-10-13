@@ -3,12 +3,12 @@ import { Subject } from 'rxjs';
 import { ColorCode, ReportStatus } from '../interfaces/general.interface';
 import { GrpcService } from '../services/grpc.service';
 import { FisErrorHandlingService } from '../services/error.handling.service.fis';
-import { ErrorHandlingService } from '../services/error.handling.service';
+import { ConnectionAuditService } from '../services/error.handling.service';
 import { MongoConnectionService } from '../services/mongo.service';
 
 // Subject for bidirectional communication
 const mongoService: MongoConnectionService = new MongoConnectionService()
-const errorHandlingService: ErrorHandlingService = new ErrorHandlingService(mongoService)
+const errorHandlingService: ConnectionAuditService = new ConnectionAuditService(mongoService)
 // const errorHandlingService: FisErrorHandlingService = new FisErrorHandlingService()
 const grpcService: GrpcService = new GrpcService()
 const messagesJSON: any = fs.readFileSync('payload.json')
@@ -20,16 +20,16 @@ let server1: string = 'localhost:3000'
 let unaryRequestSubject: Subject<any> = new Subject()
 
 /* Server Streaming Test case */
-errorHandlingService.handleMessage(unaryRequestSubject, statusControl).subscribe((messages) => {
-  messageToBeReleased.next(messages)
-})
-grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'server streaming' })
-
-/* Bidirectional streaming test case */
 // errorHandlingService.handleMessage(unaryRequestSubject, statusControl).subscribe((messages) => {
 //   messageToBeReleased.next(messages)
 // })
-// grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'bidirectional' })
+// grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'server streaming' })
+
+/* Bidirectional streaming test case */
+errorHandlingService.handleMessage(dataMessages, statusControl).subscribe((messages) => {
+  messageToBeReleased.next(messages)
+})
+grpcService.createGrpcInstance(server1, messageToBeReleased, statusControl, { instanceType: 'client', serviceMethod: 'bidirectional' })
 
 
 
@@ -49,7 +49,7 @@ let testMessageRequest = {
 }
 
 setTimeout(() => {
-  messageToBeReleased.next(testMessageRequest)
+  // messageToBeReleased.next(testMessageRequest)
 }, 1000)
 // setTimeout(() => {
 //   unaryRequestSubject.next(testMessageRequest)

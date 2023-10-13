@@ -1,10 +1,10 @@
-import mongoose, { Schema } from 'mongoose';
+import mongoose, { Model, Schema } from 'mongoose';
 import { Subject } from 'rxjs';
 
 export class MongoConnectionService {
     private connections: Record<string, mongoose.Connection> = {}
     private mongoUrl: any // an object
-    private messageModel: any
+    private messageModel: any | Model<any>
 
     constructor() {
     }
@@ -94,11 +94,9 @@ export class MongoConnectionService {
                 // Emit each document to the subject
                 subjectArgs.next(message);
             });
-
             eventStream.on('end', async () => {
                 // All data has been streamed, complete the subject
                 subjectArgs.complete();
-
                 // Delete the data once it has been streamed
                 try {
                     await this.messageModel.deleteMany({});

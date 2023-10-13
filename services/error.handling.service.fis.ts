@@ -11,31 +11,29 @@ export class FisErrorHandlingService {
     private bufferedStorage: MessageLog[] = []
     private mongoConnection: any
     private messageModel: any
+    private maximumBufferLength: number = parseInt(process.env.MaxBufferLoad as string) // right now just put as 15
 
     constructor() {
         // Connect to mongoDB. 
         this.manageMongoConnection()
-        this.mongoConnection.once('open', () => {
-            this.messageModel = this.mongoConnection.model('Message', require('../models/message.schema'));
-        })
     }
 
     // Main function that intercepts outgoing messages by communicating || intepreting report status from grpc connection as indicator 
     public handleMessage(messageToBePublished: Subject<MessageLog>, statusReport: Subject<ReportStatus>): Subject<MessageLog> {
         let releaseMessageSubject: Subject<MessageLog> = new Subject() // A return value
         // Using the concept of toggling to improve the eficacy of subscription control && data flow
-        let messageReleaseSubscription: Subscription | null = null 
+        let messageReleaseSubscription: Subscription | null = null
         let messageBufferSubscription: Subscription | null = null
         let messageStreamToMongo: Subscription | null = null
-
+        this.checkBufferLimit(messageToBePublished, statusReport)
         statusReport.subscribe((report: any) => {
             if (report.code == ColorCode.GREEN) {
                 console.log(`Connection status report && ${report.message ?? 'No Message'}`)
                 /* Status Chain begins */
                 let status: Status = 1
                 if (status === 1) {
-                    messageStreamToMongo = this.deactivateMongoStreamSubscription(messageStreamToMongo) 
-                    if (messageStreamToMongo) status = -1 
+                    messageStreamToMongo = this.deactivateMongoStreamSubscription(messageStreamToMongo)
+                    if (messageStreamToMongo) status = -1
                 }
                 if (status === 1) {
                     messageBufferSubscription = this.deactivateBufferSubscription(messageBufferSubscription)
@@ -78,6 +76,10 @@ export class FisErrorHandlingService {
 
             }
             if (report.code == ColorCode.YELLOW) {
+                if (report.payload) {
+                    console.log(`Rebuffering ${report.payload.appData?.msgId} into buffer...`)
+                    this.bufferedStorage.push(report.payload)
+                }
                 console.log(`Connection status report && ${report.message ?? 'No Message'}`)
 
                 let status: Status = 1
@@ -121,6 +123,21 @@ export class FisErrorHandlingService {
             }
         })
         return releaseMessageSubject
+    }
+
+    private checkBufferLimit(message: Subject<any>, statusReport: Subject<ReportStatus>) {
+        message.subscribe(() => {
+            if (this.bufferedStorage.length >= this.maximumBufferLength) {
+                // for every messges that comes in, check the bufffer size, if it exceesd more than designated amount, push a red report status i
+                console.log(`Buffer length exceeds limit imposed!!!`)
+                let report: ReportStatus = {
+                    code: ColorCode.RED,
+                    message: `Buffer is exceeding limit. Initiate storage transfer to designated database. `
+                }
+                statusReport.next(report)
+
+            }
+        })
     }
 
     // Release the incoming Messages to be returned to the caller
@@ -299,26 +316,7 @@ export class FisErrorHandlingService {
     private async releaseMessageFromMongoStorage(): Promise<Subject<MessageLog>> {
         return new Promise((resolve, reject) => {
             let dataSubject: Subject<MessageLog> = new Subject()
-            const mongoEvent = this.messageModel.find().lean().cursor();
-
-            mongoEvent.on('data', (message) => {
-                // Emit each document to the subject
-                dataSubject.next(message);
-            });
-
-            mongoEvent.on('end', async () => {
-                // All data has been streamed, complete the subject
-                dataSubject.complete();
-
-                // Delete the data once it has been streamed
-                try {
-                    await this.messageModel.deleteMany({});
-                    console.log('Data in Mongo deleted successfully.');
-                } catch (err) {
-                    console.error('Error deleting data:', err);
-                    reject(err)
-                }
-            });
+            this.extractAllMessages(dataSubject)
             resolve(dataSubject)
         })
     }
@@ -334,6 +332,7 @@ export class FisErrorHandlingService {
             });
             this.mongoConnection.once('open', () => {
                 console.log(`Connected to ${process.env.MONGO}`);
+                this.messageModel = this.mongoConnection.model('Message', require('../models/message.schema'));
             });
         })
     }
@@ -347,6 +346,29 @@ export class FisErrorHandlingService {
                 console.log(`Something Wrong occured. Please check at manageMongoConnection`)
             }
             await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second before the next attempt
+        }
+    }
+
+    public async extractAllMessages(subjectArgs: Subject<any>): Promise<void> {
+        if (this.messageModel) {
+            const eventStream = this.messageModel.find().lean().cursor()
+            eventStream.on('data', (message) => {
+                // Emit each document to the subject
+                subjectArgs.next(message);
+            });
+            eventStream.on('end', async () => {
+                // All data has been streamed, complete the subject
+                subjectArgs.complete();
+                // Delete the data once it has been streamed
+                try {
+                    await this.messageModel.deleteMany({});
+                    console.log('Data in Mongo deleted successfully.');
+                } catch (err) {
+                    console.error('Error deleting data:', err);
+                }
+            });
+        } else {
+            console.log(`Error: Message Model is ${this.messageModel}!! Please set up the mongoose connectino properly!`)
         }
     }
 

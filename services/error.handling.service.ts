@@ -5,7 +5,7 @@ import { MongoConnectionService } from './mongo.service';
 require('dotenv').config();
 
 // Implement status chain refactoring
-export class ErrorHandlingService {
+export class ConnectionAuditService {
     private bufferedStorage: MessageLog[] = []
     private database: string = `emergencyStorage`
     private mongoUrl: string = process.env.MONGO as string
@@ -180,7 +180,7 @@ export class ErrorHandlingService {
         bufferedStorage.subscribe({
             next: (message: MessageLog) => {
                 this.mongoService.saveToMongo(message).then((res) => {
-                    console.log(`Message ${message.appData.msgId} saved successfully...`)
+                    console.log(`Bufferd Message ${message.appData.msgId} transferred successfully...`)
                 }).catch((err) => console.error(err))
             },
             error: (error) => console.error(error),
@@ -222,3 +222,4 @@ export class ErrorHandlingService {
     }
 
 }
+
