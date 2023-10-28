@@ -1,6 +1,6 @@
 import * as grpc from '@grpc/grpc-js';
 import { Subject, Subscription, take, takeUntil } from 'rxjs';
-import { ColorCode, GrpcConnectionType, MessageLog, ReportStatus } from '../interfaces/general.interface';
+import { ColorCode, ReportStatus } from '../interfaces/general.interface';
 import { Status } from '@grpc/grpc-js/build/src/constants';
 const message_proto = require('./protos/server.proto')
 
@@ -36,8 +36,8 @@ export class GrpcService {
     }
 
     // To be migrated into a service in the immediate future
-    public async createGrpcInstance(serverUrl: string, messageToBePublished: Subject<MessageLog>, reportStatus: Subject<ReportStatus>, connectionType: GrpcConnectionType) {
-        let messageToBeTransmitted: Subject<MessageLog> = messageToBePublished
+    public async createGrpcInstance(serverUrl: string, messageToBePublished: Subject<any>, reportStatus: Subject<ReportStatus>, connectionType: any) {
+        let messageToBeTransmitted: Subject<any> = messageToBePublished
         let statusControl: Subject<ReportStatus> = reportStatus
         let consecutiveResolutions = 0;
         let lastResolutionTime = Date.now();
@@ -50,14 +50,8 @@ export class GrpcService {
                 if (connectionType.instanceType == 'client' && connectionType.serviceMethod == 'bidirectional') {
                     await this.createBidirectionalStreamingClient(serverUrl, alreadyHealthCheck, messageToBeTransmitted, statusControl);
                 }
-                if (connectionType.instanceType == 'client' && connectionType.serviceMethod == 'server streaming') {
-                    await this.createServerStreamingClient(serverUrl, alreadyHealthCheck, messageToBeTransmitted, statusControl);
-                }
                 if (connectionType.instanceType == 'server' && connectionType.serviceMethod == 'bidirectional') {
                     await this.createGrpcBidirectionalServer(serverUrl, messageToBeTransmitted, statusControl)
-                }
-                if (connectionType.instanceType == 'server' && connectionType.serviceMethod == 'server streaming') {
-                    await this.createServerStreamingServer(serverUrl, alreadyHealthCheck, messageToBePublished, statusControl)
                 }
                 // If connection resolves (indicating failure), increment the count
                 consecutiveResolutions++;
@@ -261,176 +255,6 @@ export class GrpcService {
         })
     }
 
-    private async createServerStreamingServer(serverUrl: string, alreadyHealthCheck: boolean, messageToBeStream: Subject<any>, statusControl: Subject<ReportStatus>): Promise<any> { // '0.0.0.0:3001'
-        return new Promise((resolve, reject) => {
-            try {
-                // https://github.com/grpc/proposal/blob/master/L5-node-client-interceptors.md
-                let server: grpc.Server = new grpc.Server();
-                let onHold: any
-                // Add the streamingData function to the gRPC service
-                // Define your message_proto.Message service methods
-
-                server.addService(message_proto.Message.service, {
-                    HandleMessage: (call) => { // this is for bidirectional streaming. Need to have another one for unary calls for web clients
-                        console.log(`Client connected from: ${call.getPeer()}`);
-                        // let request = call.request // just putting it here to verify unary call request
-                        let report: ReportStatus = {
-                            code: ColorCode.GREEN,
-                            message: `Client connected!!`
-                        }
-                        statusControl.next(report)
-                        let subscription: Subscription = messageToBeStream.subscribe({
-                            next: (payload: any) => {
-                                let noConnection = call.cancelled // check connection for each and every message
-                                if (noConnection === true) { // that means there's no connection, beccause the cancel operation is determined to check 
-                                    let report: ReportStatus = {
-                                        code: ColorCode.YELLOW,
-                                        message: `Client is not alive.....`,
-                                        payload: payload
-                                    }
-                                    statusControl.next(report)
-                                    subscription.unsubscribe()
-                                } else {
-                                    console.log(`Sending ${payload.appData.msgId}`)
-                                    let message: string = JSON.stringify(payload)
-                                    call.write({ message })
-                                    // onHold = null
-                                }
-                            },
-                            error: err => {
-                                console.error(err)
-                                let report: ReportStatus = {
-                                    code: ColorCode.YELLOW,
-                                    message: `Message streaming error`
-                                }
-                                statusControl.next(report)
-                            },
-                            complete: () => console.log(``)  //it will never complete
-                        })
-
-                        call.on('data', (data: any) => {
-                            // console.log(data) // it does return in string format
-                            let payload = JSON.parse(data.message)
-                            console.log(data)
-                            // console.log(`Received Message from Client: ${payload.appData?.msgId}`);
-                            // Forward the received message to the RxJS subject
-                            let respmsg: any = {
-                                msgId: payload.appData?.msgId,
-                                confirmationMessage: `Message ${payload.appData?.msgId} acknowledged!`
-                            }
-                            let message: string = JSON.stringify(respmsg)
-                            console.log(`Responding to client: ${respmsg.msgId}`);
-                            // Note: The parameter here MUST BE STRICTLY be the same letter as defined in proto. Eg: message MessageRequest { string >>'message'<< = 1 }
-                            call.write({ message });
-                        });
-
-                        call.on('end', () => {
-                            console.log('Client stream ended');
-                            // but the stream never ends. THis is not a reliable way to tell if a client is disconnected
-                        });
-
-                        call.on('error', (err) => {
-                            // Error that may occue during the rpc call. Id there's an error, put a callbacn function there to check the connection for client
-                            // emit a yellow report to halt message release. If the server does not reply to the callback function, then emit a red card
-                            // the call back function will be to write and then the client should response immediately through test
-                        });
-
-                        call.on('close', () => {
-                            console.log('Unknown cause for diconnectivity');
-                            // Handle client closure, which may be due to errors or manual termination
-                        });
-                    },
-
-                    Check: (_, callback) => {
-                        // health check logic here
-                        // for now it is just sending the status message over to tell the client it is alive
-                        // For simplicity, always return "SERVING" as status
-                        callback(null, { status: 'SERVING' });
-                    },
-                });
-
-                // Bind and start the server
-                server.bindAsync(serverUrl, grpc.ServerCredentials.createInsecure(), () => {
-                    console.log(`gRPC server is running on ${serverUrl}`);
-                    server.start();
-                });
-                this.grpcServerConnection[serverUrl] = server
-            }
-            catch (error) {
-                resolve(error)
-            }
-
-        })
-    }
-
-    // Create a server streaming call. Please note that the structure of the code would not be the same as bidirectional because of it's unary nature
-    private async createServerStreamingClient(server: string, alreadyHealthCheck: boolean, unaryRequestSubject: Subject<any>, statusControl: Subject<ReportStatus>): Promise<string> {
-        return new Promise(async (resolve, reject) => {
-            const client = new message_proto.Message(server, grpc.credentials.createInsecure());
-            this.checkConnectionHealth(client, statusControl, alreadyHealthCheck) // atcually there's no need for this 
-            unaryRequestSubject.subscribe({
-                next: (request: any) => {
-                    let message = {
-                        id: '123',
-                        message: JSON.stringify(request)
-                    }
-
-                    console.log(`Sending request: ${message.id} over to server....`)
-                    const call = client.HandleMessage(message)
-
-                    call.on('status', (status: Status) => {
-                        // console.log(status) // For more info: https://grpc.github.io/grpc/core/md_doc_statuscodes.html
-                        // https://grpc.io/docs/what-is-grpc/core-concepts/#streaming
-                        if (status == grpc.status.OK) { // only returns a status when there's error. Otherwise it just waits
-                            console.log(`Message trasmission operation is successful`)
-                            // RPC completed successfully
-                        } if (status == grpc.status.UNAVAILABLE) {
-                            resolve('No connection established. Server is not responding..')
-                            let report = {
-                                code: ColorCode.YELLOW,
-                                message: `Server doesn't seem to be alive. Error returned.`
-                            }
-                            statusControl.next(report)
-                        }
-                    });
-
-                    call.on('data', (data: any) => {
-                        let message = JSON.parse(data.message)
-                        console.log(`Received data from Server: ${message.appData?.msgId ?? `Invalid`}`);
-                    });
-
-                    call.on('error', (err) => {
-                        let report = {
-                            code: ColorCode.YELLOW,
-                            message: `Server doesn't seem to be alive. Error returned.`
-                        }
-                        statusControl.next(report)
-                        // resolve(err)
-                    });
-
-                    call.on('end', () => { // this is for gracefull || willfull termination from the server
-                        let report = {
-                            code: ColorCode.YELLOW,
-                            message: `Server doesn't seem to be alive. Error returned.`
-                        }
-                        statusControl.next(report)
-                        // subscription.unsubscribe(); // this is not correct i am just destroying the entire operation. i should be terminating the instance to which i think it does by it self
-                        // resolve('Server Error');
-                    });
-                    /* Avoid rsolving at the moment. Because initially it was intended for the bi directional streaming to continue to instantiate the client
-                    should there be any rpc errors or internet connection errors. In this case, we just want to listen to incoming unary call without terminating the session
-                    A separate resolve will be prepared for the subject should it fails in its operation */
-                },
-                error: error => {
-                    console.error(error),
-                        resolve(error)
-                },
-                complete: () => { } // should not complete since this is an indefinite listening process to transmit requests made by relevant client application
-            })
-
-
-        })
-    }
 
     // Check connection To be Update. This function is destroying my code flow
     private async checkConnectionHealth(client: any, statusControl: Subject<ReportStatus>, alreadyHealthCheck: boolean): Promise<boolean> {

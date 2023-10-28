@@ -1,15 +1,5 @@
 import * as _ from 'lodash'
 export class UtilityService {
-    // Check Heap size
-    // const v8 = require('v8');
-    // const heapStats = v8.getHeapStatistics();
-    // const maxHeapSize = heapStats.heap_size_limit / (1024 * 1024); // Convert to MB
-    // console.log(`Current maximum heap size: ${maxHeapSize.toFixed(2)} MB`);
-    // const used = process.memoryUsage().heapUsed / 1024 / 1024;
-    // const total = process.memoryUsage().heapTotal / 1024 / 1024;
-    // console.log(`Heap memory usage: ${used.toFixed(2)} MB`);
-    // console.log(`Total heap size: ${total.toFixed(2)} MB`);
-
     public callFromOtherClass() {
         const t0 = performance.now()
         let i

@@ -1,23 +1,23 @@
 import * as _ from 'lodash'
 import { Observable, Subject, Subscription, from } from 'rxjs'
-import { ColorCode, MessageLog, ReportStatus } from '../interfaces/general.interface'
+import { ColorCode, ReportStatus } from '../interfaces/general.interface'
 import { MongoConnectionService } from './mongo.service';
 require('dotenv').config();
 
 // Implement status chain refactoring
 export class ConnectionAuditService {
-    private bufferedStorage: MessageLog[] = []
+    private bufferedStorage: any[] = []
     private database: string = `emergencyStorage`
     private mongoUrl: string = process.env.MONGO as string
     private maximumBufferLength: number = parseInt(process.env.MaxBufferLoad as string) // right now just put as 15
 
     constructor(private mongoService: MongoConnectionService) {
-        mongoService.manageMongoConnection(this.database, this.mongoUrl)
+        // mongoService.manageMongoConnection(this.database, this.mongoUrl)
     }
 
     // Main function that intercepts outgoing messages by communicating || intepreting report status from grpc connection as indicator
-    public handleMessage(messageToBePublished: Subject<MessageLog>, statusReport: Subject<ReportStatus>): Subject<MessageLog> {
-        let releaseMessageSubject: Subject<MessageLog> = new Subject()
+    public handleMessage(messageToBePublished: Subject<any>, statusReport: Subject<ReportStatus>): Subject<any> {
+        let releaseMessageSubject: Subject<any> = new Subject()
         let messageReleaseSubscription: Subscription | null = null; // Initialize as null
         let messageBufferSubscription: Subscription | null = null
         let messageStreamToMongo: Subscription | null = null
@@ -26,7 +26,7 @@ export class ConnectionAuditService {
             if (report.code == ColorCode.GREEN) {
                 console.log(`Connection status report: ${report.message ?? 'No Message'}`)
                 messageStreamToMongo = this.deactivateMongoStreamSubscription(messageStreamToMongo)
-                this.releaseMessageFromLocalBuffer(this.bufferedStorage).then((resObs: Observable<MessageLog>) => {
+                this.releaseMessageFromLocalBuffer(this.bufferedStorage).then((resObs: Observable<any>) => {
                     resObs.subscribe({
                         next: message => releaseMessageSubject.next(message),
                         error: err => console.error(err),
@@ -36,7 +36,7 @@ export class ConnectionAuditService {
                         }
                     })
                 }).catch((err) => console.error(err))
-                this.releaseMessageFromMongoStorage().then((resObs: Subject<MessageLog>) => {
+                this.releaseMessageFromMongoStorage().then((resObs: Subject<any>) => {
                     resObs.subscribe({
                         next: message => releaseMessageSubject.next(message),
                         error: err => console.error(err),
@@ -87,7 +87,7 @@ export class ConnectionAuditService {
     private activateReleaseSubscription(messageReleaseSubscription, messageToBePublished, releaseMessageSubject): any {
         if (!messageReleaseSubscription) {
             messageReleaseSubscription = messageToBePublished.subscribe({
-                next: (message: MessageLog) => {
+                next: (message: any) => {
                     console.log(`Releasing ${message.appData.msgId}...`);
                     releaseMessageSubject.next(message);
                 },
@@ -114,10 +114,10 @@ export class ConnectionAuditService {
     }
 
     // Begin to push the incoming messages into local instantarray
-    private activateBufferSubscription(bufferStorage: MessageLog[], messageBufferSubscription, messageToBePublished): any {
+    private activateBufferSubscription(bufferStorage: any[], messageBufferSubscription, messageToBePublished): any {
         if (!messageBufferSubscription) {
             messageBufferSubscription = messageToBePublished.subscribe({
-                next: (message: MessageLog) => {
+                next: (message: any) => {
                     console.log(`Buffering ${message.appData.msgId}...  Local array length: ${bufferStorage.length}`);
                     bufferStorage.push(message)
                 },
@@ -147,9 +147,9 @@ export class ConnectionAuditService {
     private activateMongoStreamSubscription(messageStreamToMongo, messageToBePublished): any {
         if (!messageStreamToMongo) {
             messageStreamToMongo = messageToBePublished.subscribe({
-                next: (message: MessageLog) => {
+                next: (message: any) => {
                     console.log(`Saving ${message.appData.msgId}...`);
-                    this.mongoService.saveToMongo(message)
+                    // this.mongoService.saveToMongo(message)
                 },
                 error: (err) => console.error(err),
                 complete: () => { },
@@ -174,14 +174,14 @@ export class ConnectionAuditService {
     }
 
     // As the name implies, transder all the messages from the local instance into mongoStorage. Local instance should be emptied after transfer is completed
-    private async transferBufferedMessagseToMongoStorage(bufferedMessage: MessageLog[], messageBufferSubscription) {
+    private async transferBufferedMessagseToMongoStorage(bufferedMessage: any[], messageBufferSubscription) {
         console.log(`Transferring buffered messages into database.`)
-        let bufferedStorage: Observable<MessageLog> = from(bufferedMessage)
+        let bufferedStorage: Observable<any> = from(bufferedMessage)
         bufferedStorage.subscribe({
-            next: (message: MessageLog) => {
-                this.mongoService.saveToMongo(message).then((res) => {
-                    console.log(`Bufferd Message ${message.appData.msgId} transferred successfully...`)
-                }).catch((err) => console.error(err))
+            next: (message: any) => {
+                // this.mongoService.saveToMongo(message).then((res) => {
+                //     console.log(`Bufferd Message ${message.appData.msgId} transferred successfully...`)
+                // }).catch((err) => console.error(err))
             },
             error: (error) => console.error(error),
             complete: () => {
@@ -194,12 +194,12 @@ export class ConnectionAuditService {
     }
 
     // As the name implies, transder all the messages from the local instance into mongoStorage. Local instance should be emptied after transfer is completed
-    private async releaseMessageFromLocalBuffer(bufferedStorage: MessageLog[]): Promise<Observable<MessageLog>> {
+    private async releaseMessageFromLocalBuffer(bufferedStorage: any[]): Promise<Observable<any>> {
         return new Promise((resolve, reject) => {
             if (bufferedStorage.length > 1) {
                 let caseVariable = this.bufferedStorage.length > 1;
                 console.log(`Releasing data from local buffer instance. There ${caseVariable ? "is" : "are"} ${this.bufferedStorage.length} messages...`);
-                let returnArrayObs: Observable<MessageLog> = from(bufferedStorage)
+                let returnArrayObs: Observable<any> = from(bufferedStorage)
                 resolve(returnArrayObs)
             } else {
                 let message = `There is no data in stored in local instance`
@@ -208,11 +208,11 @@ export class ConnectionAuditService {
         })
     }
     // Transder all the stored messages in designated mongo databases. It should be empty after all the data has been transferred.
-    private async releaseMessageFromMongoStorage(): Promise<Subject<MessageLog>> {
+    private async releaseMessageFromMongoStorage(): Promise<Subject<any>> {
         return new Promise((resolve, reject) => {
-            let dataSubject: Subject<MessageLog> = new Subject()
+            let dataSubject: Subject<any> = new Subject()
             try {
-                this.mongoService.extractAllMessages(dataSubject)
+                // this.mongoService.extractAllMessages(dataSubject)
             }
             catch (error) {
                 reject(error)
