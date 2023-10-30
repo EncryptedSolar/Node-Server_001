@@ -4,13 +4,12 @@ import { OutgoingMessage } from 'http';
 import { Observable, Subject, interval } from 'rxjs';
 import { Server } from "socket.io";
 import { io } from "socket.io-client";
-import { Message } from '../interfaces/message';
 
 config()
 let client: string
 
 let outGoingInterval = interval(1000)
-let outGoingMessage: Subject<Message> = new Subject()
+let outGoingMessage: Subject<any> = new Subject()
 let generalSubject: Subject<any> = new Subject()
 generalSubject.subscribe((element) => {
     console.log(element)
@@ -61,9 +60,9 @@ function connectIOserver(clientUrl: string, outGoingMessage?: Subject<any> | Obs
     return responseSubject
 }
 
-function registerUser(subjectStream: Subject<Message>) {
+function registerUser(subjectStream: Subject<any>) {
     setTimeout(() => {
-        let message: Message = {
+        let message: any = {
             user: 'guest',
             action: {
                 action: 'register',

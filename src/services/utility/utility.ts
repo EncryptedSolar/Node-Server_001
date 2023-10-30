@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import * as _ from 'lodash'
 export class UtilityService {
     public callFromOtherClass() {
@@ -31,4 +32,13 @@ export class UtilityService {
         let cpuUsage = os.cpus()
         console.log(cpuUsage)
     }
+
+
+    // Function to generate a secure random key of a specified length (e.g., 32 bytes for a 256-bit key)
+    public generateSecretKey(length) {
+        return randomBytes(length).toString('hex');
+    }
+
+
 }
+

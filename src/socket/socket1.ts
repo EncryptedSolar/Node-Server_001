@@ -2,19 +2,18 @@
 import { config } from 'dotenv';
 import { Observable, Subject, interval } from 'rxjs';
 import { Server } from "socket.io";
-import { Message } from '../interfaces/message';
-import { AuthService } from '../services/authentication.service';
 import { MongoConnectionService } from '../services/mongo.service';
+import { AuthService } from '../services/auth.service';
 
 config() // Just for reading .env file
 
 let incomingMessage: Subject<any> = new Subject()
 let notificationSubject = interval(1000)
-let authService: AuthService = new AuthService()
+let authService: AuthService = new AuthService(new MongoConnectionService())
 let mongoService: MongoConnectionService = new MongoConnectionService()
 
 incomingMessage.subscribe({
-    next: (message: Message) => {
+    next: (message: any) => {
         checkMessage(message).then((res) => {
 
         })
@@ -25,7 +24,7 @@ incomingMessage.subscribe({
 //     return connectMongo('database2', process.env.MONGO + '/database2')
 // }).then(() => {
 //     return createIOserver(parseInt(process.env.PORT as string), notificationSubject).subscribe({
-//         next: (message: Message) => checkMessage(message).then((res) => processMessage(res))
+//         next: (message: any) => checkMessage(message).then((res) => processMessage(res))
 //     })
 // }).then(() => {
 //     console.log(mongoService.getAllConnectionStatus())
@@ -35,8 +34,8 @@ incomingMessage.subscribe({
 
 setTimeout(() => {
     console.log(`Getting status for usersdDatabse`)
-    mongoService.getConnectionStatusDetails('database2').subscribe((element: string) => console.log(element))
-    console.log(mongoService.getAllConnectionStatus())
+    // mongoService.getConnectionStatusDetails('database2').subscribe((element: string) => console.log(element))
+    // console.log(mongoService.getAllConnectionStatus())
 }, 3000)
 
 function createIOserver(port: number, notificationSubject?: Subject<any> | Observable<any>): Subject<any> {
@@ -59,7 +58,7 @@ function createIOserver(port: number, notificationSubject?: Subject<any> | Obser
         // Handle messages from clients
         socket.on('message', (message) => {
             responseSubject.next(message)
-            let acknowledge = `Message${message.id || ''} received. Instructions acknowledged`
+            let acknowledge = `any${message.id || ''} received. Instructions acknowledged`
             ioServer.to(socket.id).emit('acknowledgement', acknowledge)
         });
 
@@ -76,7 +75,7 @@ function createIOserver(port: number, notificationSubject?: Subject<any> | Obser
 /* ---------------------------------------------------------------------------------------------------------------------------------------------------------- */
 
 
-async function checkMessage(message: Message): Promise<Message> {
+async function checkMessage(message: any): Promise<any> {
     /* Check the messages. What is it and how to reply them */
     return new Promise((resolve, reject) => {
         if (message.action.action == 'login') {
@@ -90,18 +89,15 @@ async function checkMessage(message: Message): Promise<Message> {
     })
 }
 
-async function processMessage(res: Message): Promise<any> {
+async function processMessage(res: any): Promise<any> {
     return new Promise((resolve, reject) => {
-        console.log(`Processing Message: ${res.action?.action}.`)
-        authService.registerUser(res).then((res) => {
-            if (res == 1) resolve(res)
-        })
+
     })
 }
 
 
 function connectMongo(dbName: string, dbURI: string): void {
-    mongoService.manageMongoConnection(dbName, dbURI)
+    // mongoService.manageMongoConnection(dbName, dbURI)
 }
 
 

@@ -1,62 +1,53 @@
-const http = require('http');
-const fs = require('fs');
-const _ = require('lodash');
+import * as express from 'express'
+import * as dotenv from 'dotenv'
+import { AuthService } from './src/services/auth.service'
+import { MongoConnectionService } from './src/services/mongo.service'
+import { UtilityService } from './src/services/utility/utility'
 
-const url = '0.0.0.0'
-const port = 3000
+dotenv.config()
+const app = express()
+const port = process.env.PORT as string
+const authService: AuthService = new AuthService(new MongoConnectionService(), new UtilityService())
 
-const server = http.createServer((req, res) => {
+// Apparently it is important to be used to read json from HTTP?? will need to do more research on this
+app.use(express.json({ limit: '10mb' })); // Adjust the limit as needed
 
-  // lodash
-  const num = _.random(0, 20);
-  console.log(num);
+app.get('/', (req, res) => {
+  res.send('Auth Server');
+});
 
-  const greet = _.once(() => {
-    console.log('hello');
-  });
-  greet();
-  greet();
+// Receives supposed REST api request from react UI to register 
+app.post('/register', async (req, res) => {
+  const { username, email, password } = req.body;
 
-  // set header content type
-  res.setHeader('Content-Type', 'text/html');
-
-  // routing
-  let path = './views/';
-  switch (req.url) {
-    case '/':
-      path += 'index.html';
-      res.statusCode = 200;
-      break;
-    case '/about':
-      path += 'about.html';
-      res.statusCode = 200;
-      break;
-    case '/about-us':
-      res.statusCode = 301;
-      res.setHeader('Location', '/about');
-      res.end();
-      break;
-    default:
-      path += '404.html';
-      res.statusCode = 404;
-  }
-
-  // send html
-  fs.readFile(path, (err, data) => {
-    if (err) {
-      console.log(err);
-      res.end();
+  authService.registerUser(username, email, password).then((user) => {
+    let message = {
+      message: `User ${user.username} registered successfully`
     }
-    //res.write(data);
-    res.end(data);
-  });``
+    res.status(201).json(message)
+    console.log(message.message)
+  }).catch((err: string) => {
+    console.error(err)
+    res.status(500).json({ message: err })
+  })
+});
 
+// Return JWT token
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+  authService.loginUser(username, password).then((userData) => {
+    let token = authService.assignJWTtoken(userData)
+    let message = {
+      message: `User: ${userData.username} successfully logged In. Token: ${token} `
+    }
+    res.status(200).json(message);
+    console.log(message.message)
+  }).catch((err) => {
+    console.error(err)
+  })
 
 });
 
-// localhost is the default value for 2nd argument
-server.listen(port, url, () => {
-  console.log(`Listening to port ${port}`);
-  console.log(`http://localhost:3000`);
+app.listen(port, () => {
+  console.log(`Server is running on port http://localhost:${port}`);
 });
-

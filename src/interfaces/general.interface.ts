@@ -1,5 +1,3 @@
-/* General interface used for office work/ */
-
 export enum ColorCode {
     'GREEN' = 'GREEN',
     "YELLOW" = "YELLOW",
